@@ -48,7 +48,7 @@ SEED_USER_ID=user_seed_demo
 RESEND_API_KEY=re_...              # optional for outbound email
 RESEND_FROM_EMAIL=ops@example.com  # optional for outbound email
 INTERNAL_ALERT_EMAIL=owner@example.com # optional approval alert recipient
-NOTIFICATION_CRON_SECRET=change_me # required for queue processor endpoint auth
+NOTIFICATION_CRON_SECRET=set_a_unique_random_value_in_netlify # required for queue processor endpoint auth
 ```
 
 For Neon, use the full connection string with SSL, e.g. `?sslmode=require`.
