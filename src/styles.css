@@ -52,7 +52,7 @@ body {
 }
 
 .app-nav-login {
-  @apply bg-slate-100 text-slate-900 hover:bg-slate-200;
+  @apply border-slate-300 bg-slate-100 text-slate-900 hover:bg-slate-200;
 }
 
 .btn-disabled {
@@ -228,10 +228,12 @@ body {
 .theme-light .app-nav-login {
   background-color: #0f172a;
   color: #ffffff;
+  border-color: #0f172a;
 }
 
 .theme-light .app-nav-login:hover {
   background-color: #1e293b;
+  border-color: #1e293b;
 }
 
 .theme-light .btn-disabled {

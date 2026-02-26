@@ -59,7 +59,8 @@ function computePerimeterPointsRect(
   targetCount: number,
   lengthFt: number,
   widthFt: number,
-  frame: { x0: number; x1: number; y0: number; y1: number }
+  frame: { x0: number; x1: number; y0: number; y1: number },
+  options?: { excludeSide?: 'top' | 'right' | 'bottom' | 'left' | null }
 ) {
   const corners = [
     { x: frame.x0, y: frame.y1 }, // bottom-left
@@ -73,11 +74,13 @@ function computePerimeterPointsRect(
 
   const perimeterFt = Math.max(1, Math.max(lengthFt, 1) + 2 * Math.max(widthFt, 1));
   const remaining = target - 4;
-  const sideDefs = [
-    { len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] }, // front edge
-    { len: Math.max(widthFt, 1), start: corners[1], end: corners[2] }, // right edge
-    { len: Math.max(widthFt, 1), start: corners[3], end: corners[0] } // left edge
+  const allSides = [
+    { key: 'bottom', len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] },
+    { key: 'right', len: Math.max(widthFt, 1), start: corners[1], end: corners[2] },
+    { key: 'top', len: Math.max(lengthFt, 1), start: corners[3], end: corners[2] },
+    { key: 'left', len: Math.max(widthFt, 1), start: corners[3], end: corners[0] }
   ];
+  const sideDefs = allSides.filter((s) => s.key !== options?.excludeSide);
 
   const quotas = sideDefs.map((s) => (remaining * s.len) / perimeterFt);
   const extras = quotas.map((q) => Math.floor(q));
@@ -136,6 +139,21 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
     ? Math.min(joistSpacingInInput, 12)
     : joistSpacingInInput;
   const joistCount = Math.max(2, Math.ceil((lengthFt * 12) / joistSpacingIn));
+  const ledgerSideRaw = String(inputs.ledger_side ?? 'top').toLowerCase();
+  const ledgerSide = (ledgerSideRaw === 'right' || ledgerSideRaw === 'bottom' || ledgerSideRaw === 'left') ? ledgerSideRaw : 'top';
+  const ledgerLineIndexRaw = Number(inputs.ledger_line_index ?? -1);
+  const ledgerLineIndex = isPolygon && Number.isFinite(ledgerLineIndexRaw) && ledgerLineIndexRaw >= 0
+    ? Math.floor(ledgerLineIndexRaw) % Math.max(1, polygonPoints.length)
+    : null;
+  const polygonHouseSideLengthFt = isPolygon && ledgerLineIndex !== null
+    ? Math.hypot(
+        (polygonPoints[(ledgerLineIndex + 1) % polygonPoints.length]?.x ?? 0) - (polygonPoints[ledgerLineIndex]?.x ?? 0),
+        (polygonPoints[(ledgerLineIndex + 1) % polygonPoints.length]?.y ?? 0) - (polygonPoints[ledgerLineIndex]?.y ?? 0)
+      )
+    : 0;
+  const houseSideLengthFt = isPolygon
+    ? polygonHouseSideLengthFt
+    : (ledgerSide === 'left' || ledgerSide === 'right') ? Math.max(widthFt, 0) : Math.max(lengthFt, 0);
   const assumptionConstants = (() => {
     const rawAssumptions = (inputs as any).takeoff_assumptions_json;
     if (!rawAssumptions) return {};
@@ -169,7 +187,7 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
   const stairOpeningLf = Math.max(0, Number(inputs.stair_count ?? 0) * Number(inputs.stair_width_ft ?? 0));
   const openRunFallback = Math.max(
     0,
-    (inputs.ledger ? (Math.max(lengthFt, 0) + 2 * Math.max(widthFt, 0)) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0)))) - stairOpeningLf
+    (inputs.ledger ? Math.max((2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0))) - houseSideLengthFt, 0) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0)))) - stairOpeningLf
   );
   const railingSupportRunLfRaw = Number((assumptionConstants as any).railing_support_run_lf ?? 0);
   const railingSupportRunLf = Number.isFinite(railingSupportRunLfRaw) && railingSupportRunLfRaw > 0
@@ -193,9 +211,29 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
   const drawBeams = Math.max(1, Math.min(beamCount, 6));
   const drawPosts = Math.max(2, Math.min(Math.ceil(postCountTotal / Math.max(beamCount, 1)), 40));
   const beamSpacingFt = widthFt / (beamCount + 1);
-  const perimeterPoints = !isPolygon
-    ? computePerimeterPointsRect(perimeterSupportPosts, lengthFt, widthFt, { x0: x, x1: x + w, y0: y, y1: y + h })
-    : [];
+  const perimeterPoints = isPolygon
+    ? toPolygonScreenPoints(polygonPoints, polyBounds!, { x, y, w, h })
+    : computePerimeterPointsRect(
+        perimeterSupportPosts,
+        lengthFt,
+        widthFt,
+        { x0: x, x1: x + w, y0: y, y1: y + h },
+        { excludeSide: inputs.ledger ? (ledgerSide as 'top' | 'right' | 'bottom' | 'left') : null }
+      );
+  const ledgerLine = (() => {
+    if (!inputs.ledger) return null;
+    if (isPolygon && polyBounds && ledgerLineIndex !== null) {
+      const screenPoints = toPolygonScreenPoints(polygonPoints, polyBounds, { x, y, w, h });
+      const a = screenPoints[ledgerLineIndex];
+      const b = screenPoints[(ledgerLineIndex + 1) % screenPoints.length];
+      if (!a || !b) return null;
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, lx: (a.x + b.x) / 2 - 42, ly: (a.y + b.y) / 2 - 8 };
+    }
+    if (ledgerSide === 'right') return { x1: x + w, y1: y, x2: x + w, y2: y + h, lx: x + w - 42, ly: y - 8 };
+    if (ledgerSide === 'bottom') return { x1: x, y1: y + h, x2: x + w, y2: y + h, lx: x, ly: y + h + 12 };
+    if (ledgerSide === 'left') return { x1: x, y1: y, x2: x, y2: y + h, lx: x, ly: y - 8 };
+    return { x1: x, y1: y, x2: x + w, y2: y, lx: x, ly: y - 8 };
+  })();
 
   return (
     <View style={styles.section}>
@@ -247,8 +285,11 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
             </>
           ) : null}
 
-          {inputs.ledger ? (
-            <Line x1={x} y1={y} x2={x + w} y2={y} stroke="#0f766e" strokeWidth={3} />
+          {ledgerLine ? <Line x1={ledgerLine.x1} y1={ledgerLine.y1} x2={ledgerLine.x2} y2={ledgerLine.y2} stroke="#0f766e" strokeWidth={3} /> : null}
+          {ledgerLine ? (
+            <Text style={{ fontSize: 8 }} x={ledgerLine.lx} y={ledgerLine.ly}>
+              {`Ledger ${isPolygon ? `edge ${Number(ledgerLineIndex ?? 0) + 1}` : `side (${ledgerSide})`}`}
+            </Text>
           ) : null}
 
           {Array.from({ length: drawBeams }).map((_, b) => {
@@ -284,7 +325,7 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
           Joists: {joistCount} @ {joistSpacingIn}" O.C. | Ledger: {inputs.ledger ? 'Yes' : 'No'} | Beams: {beamCount}{beamCount !== beamCountInput ? ` (auto from ${beamCountInput})` : ''} | Beam support posts: {postCountTotal} ({Math.ceil(postCountTotal / Math.max(beamCount, 1))}/beam)
         </Text>
         <Text style={styles.caption}>
-          Perimeter railing support posts: {perimeterSupportPosts} (open run {railingSupportRunLf.toFixed(0)} lf @ max {defaultRailingPostSpacingFt.toFixed(0)}ft, no ledger-edge posts)
+          Perimeter railing support posts: {perimeterSupportPosts} (open run {railingSupportRunLf.toFixed(0)} lf @ max {defaultRailingPostSpacingFt.toFixed(0)}ft, no ledger-edge posts on {isPolygon ? `edge ${Number(ledgerLineIndex ?? 0) + 1}` : ledgerSide})
         </Text>
         <Text style={styles.caption}>
           Beam post spacing: ~{postSpacingFt.toFixed(1)} ft | Beam spacing: ~{beamSpacingFt.toFixed(1)} ft

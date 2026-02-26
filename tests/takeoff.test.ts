@@ -9,6 +9,7 @@ const baseInputs = {
   decking_board_width_in: 5.5,
   joist_spacing_in: 16 as const,
   ledger: true,
+  ledger_side: 'top' as const,
   beam_count: 1,
   post_size: '6x6' as const,
   post_spacing_ft: 6,
@@ -30,10 +31,10 @@ describe('takeoff engine', () => {
     expect(hangers?.qty).toBe(15);
   });
 
-  it('calculates railing LF from perimeter minus stair opening', () => {
+  it('calculates railing LF from open perimeter (ledger side removed) minus stair opening', () => {
     const result = generateTakeoff(baseInputs);
     const railing = result.items.find((i) => i.category === 'Railing');
-    expect(railing?.qty).toBe(61);
+    expect(railing?.qty).toBe(41);
   });
 
   it('calculates roof area derived lines for covered deck', () => {
@@ -107,6 +108,7 @@ describe('takeoff engine', () => {
   it('uses polygon area and perimeter overrides for custom deck shapes', () => {
     const result = generateTakeoff({
       ...baseInputs,
+      ledger: false,
       shape_mode: 'polygon',
       deck_polygon_points: [
         { x: 0, y: 0 },
@@ -124,6 +126,15 @@ describe('takeoff engine', () => {
     const railing = result.items.find((i) => i.category === 'Railing');
     expect(decking?.qty).toBe(76);
     expect(railing?.qty).toBe(40);
+  });
+
+  it('uses selected ledger side when computing open railing run', () => {
+    const result = generateTakeoff({
+      ...baseInputs,
+      ledger_side: 'left'
+    });
+    const railing = result.items.find((i) => i.category === 'Railing');
+    expect(railing?.qty).toBe(49);
   });
 
   it('generates fence takeoff items for fence mode', () => {

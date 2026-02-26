@@ -1,6 +1,6 @@
 ---
 import '../styles.css';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/astro/components';
+import { SignedIn, SignedOut, UserButton } from '@clerk/astro/components';
 
 interface Props {
   title: string;
@@ -41,9 +41,7 @@ const { title } = Astro.props;
               <div class="ml-1"><UserButton /></div>
             </SignedIn>
             <SignedOut>
-              <SignInButton mode="redirect" forceRedirectUrl="/projects">
-                <button class="app-nav-login rounded-md bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-ink/90">Log In</button>
-              </SignInButton>
+              <a href="/login" class="app-nav-login rounded-md border px-3 py-2 text-sm font-semibold">Log In</a>
             </SignedOut>
             <button
               id="theme-toggle"

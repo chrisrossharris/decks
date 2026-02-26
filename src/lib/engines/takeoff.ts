@@ -12,6 +12,11 @@ const AVAILABLE_FRAMING_LENGTHS_FT = [8, 10, 12, 14, 16];
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const ceil = (n: number) => Math.ceil(n);
+const normalizeLedgerSide = (side: unknown): 'top' | 'right' | 'bottom' | 'left' => {
+  const value = String(side ?? 'top').toLowerCase();
+  if (value === 'right' || value === 'bottom' || value === 'left') return value;
+  return 'top';
+};
 
 function polygonArea(points: Array<{ x: number; y: number }>) {
   if (points.length < 3) return 0;
@@ -48,6 +53,14 @@ function polygonBounds(points: Array<{ x: number; y: number }>) {
 function polygonAverageWidth(areaSqft: number, lengthFt: number) {
   const safeLength = Math.max(1, lengthFt);
   return Math.max(1, areaSqft / safeLength);
+}
+
+function polygonEdgeLength(points: Array<{ x: number; y: number }>, index: number) {
+  if (points.length < 2) return 0;
+  const i = ((index % points.length) + points.length) % points.length;
+  const a = points[i];
+  const b = points[(i + 1) % points.length];
+  return Math.hypot((b?.x ?? 0) - (a?.x ?? 0), (b?.y ?? 0) - (a?.y ?? 0));
 }
 
 function withPrice(base: Omit<TakeoffItem, 'unit_cost' | 'vendor' | 'is_allowance'>): TakeoffItem {
@@ -297,6 +310,16 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
   const joistSize = joistSpanFt > 8 ? '2x10' : '2x8';
   const joistName = `${joistSize} PT joist`;
   const rimName = `${joistSize} PT rim joist`;
+  const ledgerSide = normalizeLedgerSide((inputs as any).ledger_side);
+  const ledgerLineIndexRaw = Number((inputs as any).ledger_line_index);
+  const ledgerLineIndex = hasCustomShape && Number.isFinite(ledgerLineIndexRaw)
+    ? ((Math.floor(ledgerLineIndexRaw) % polygonPoints.length) + polygonPoints.length) % polygonPoints.length
+    : null;
+  const houseSideLengthFt = hasCustomShape && ledgerLineIndex !== null
+    ? Math.max(polygonEdgeLength(polygonPoints, ledgerLineIndex), 0)
+    : (ledgerSide === 'left' || ledgerSide === 'right')
+      ? Math.max(effectiveDeckWidthFt, 0)
+      : Math.max(effectiveDeckLengthFt, 0);
   const framingDepthFt = hasCustomShape
     ? polygonAverageWidth(deckSqft, effectiveDeckLengthFt)
     : effectiveDeckWidthFt;
@@ -311,23 +334,22 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
       ? Number(inputs.deck_perimeter_override_lf)
       : 2 * (inputs.deck_length_ft + inputs.deck_width_ft);
   const stairOpening = inputs.stair_count > 0 ? inputs.stair_width_ft * inputs.stair_count : 0;
-  const railingLf = inputs.custom_railing_lf && inputs.railing_sides === 'custom'
-    ? inputs.custom_railing_lf
-    : Math.max(perimeter - stairOpening, 0);
+  const defaultRailingBaseLf = inputs.ledger || inputs.railing_sides === '3_sides'
+    ? Math.max(perimeter - houseSideLengthFt, 0)
+    : perimeter;
+  const railingLf =
+    inputs.railing_type === 'none'
+      ? 0
+      : inputs.custom_railing_lf && inputs.railing_sides === 'custom'
+        ? Math.max(inputs.custom_railing_lf, 0)
+        : Math.max(defaultRailingBaseLf - stairOpening, 0);
 
   let railingSupportRunLf = 0;
   if (inputs.railing_type !== 'none') {
     if (inputs.railing_sides === 'custom' && inputs.custom_railing_lf) {
       railingSupportRunLf = Math.max(inputs.custom_railing_lf, 0);
-    } else if (hasCustomShape) {
-      const houseSideApproxLf = Math.max(effectiveDeckLengthFt, 0);
-      const openPerimeterLf = inputs.ledger ? Math.max(perimeter - houseSideApproxLf, 0) : perimeter;
-      railingSupportRunLf = Math.max(openPerimeterLf - stairOpening, 0);
     } else {
-      const openRectRunLf = inputs.ledger
-        ? Math.max(effectiveDeckLengthFt + 2 * effectiveDeckWidthFt, 0)
-        : Math.max(2 * (effectiveDeckLengthFt + effectiveDeckWidthFt), 0);
-      railingSupportRunLf = Math.max(openRectRunLf - stairOpening, 0);
+      railingSupportRunLf = railingLf;
     }
   }
   const railingSpans = inputs.railing_type === 'none' ? 0 : ceil(railingSupportRunLf / railingPostSpacingFt);
@@ -510,10 +532,10 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         category: 'Waterproofing',
         name: 'Ledger flashing',
         unit: 'lf',
-        qty: round2(inputs.deck_length_ft),
+        qty: round2(houseSideLengthFt),
         waste_factor: 0.05,
         lead_time_days: 2,
-        notes: 'Ledger flashing length'
+        notes: `Ledger flashing length (${hasCustomShape && ledgerLineIndex !== null ? `edge ${ledgerLineIndex + 1}` : `${ledgerSide} side`})`
       })
     );
   }
@@ -537,7 +559,7 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         qty: railingPosts,
         waste_factor: 0.08,
         lead_time_days: 7,
-        notes: `Post spacing allowance at ~${railingPostSpacingFt}ft`
+      notes: `Post spacing allowance at ~${railingPostSpacingFt}ft (${ledgerSide} ledger side)`
       })
     );
   }
@@ -684,6 +706,8 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         rim_joists_lf: '2*length + 2*width',
         perimeter_lf: "if shape_mode='polygon', compute perimeter from polygon points",
         fasteners_boxes: 'ceil(deck_sqft/100)',
+        house_side_length_lf: "if shape_mode='polygon' then selected ledger edge length, else ledger_side in ['top','bottom'] ? deck_length_ft : deck_width_ft",
+        railing_lf: "railing_sides='custom' ? custom_railing_lf : max((ledger||railing_sides='3_sides' ? perimeter_lf-house_side_length_lf : perimeter_lf)-stair_opening_lf,0)",
         post_count: 'max(beam_support_posts, perimeter_railing_support_posts, 4), where beam_support_posts=post_count_per_beam*effective_beam_count and perimeter_railing_support_posts=ceil(railing_support_run_lf/railing_post_spacing_ft)+1',
         railing_posts: `ceil(railing_support_run_lf/${railingPostSpacingFt})+1`,
         stairs_stringers: 'ceil(stair_width_ft/1.5)+1',
@@ -706,6 +730,9 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         board_mix_per_course: boardMixEntries.map(([len, count]) => `${len}ft x ${count}`).join(', '),
         board_mix_run_overage_ft: boardMix.run_overage_ft,
         shape_geometry_source: hasCustomShape ? 'polygon_points' : 'rectangular_inputs',
+        ledger_side: ledgerSide,
+        ledger_line_index: ledgerLineIndex ?? -1,
+        house_side_length_lf: round2(houseSideLengthFt),
         post_count_total: postCount,
         beam_support_post_count: structuralBeamPosts,
         perimeter_railing_support_post_count: perimeterRailingSupportPosts,

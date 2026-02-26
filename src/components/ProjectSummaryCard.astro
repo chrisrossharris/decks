@@ -11,12 +11,27 @@ interface Props {
 
 const { inputs = {}, takeoff, labor, estimate } = Astro.props as Props;
 
-const lengthFt = Number(inputs.deck_length_ft ?? 0);
-const widthFt = Number(inputs.deck_width_ft ?? 0);
+const polygonPoints = Array.isArray(inputs.deck_polygon_points)
+  ? inputs.deck_polygon_points
+      .map((p: any) => ({ x: Number(p?.x), y: Number(p?.y) }))
+      .filter((p: any) => Number.isFinite(p.x) && Number.isFinite(p.y))
+  : [];
+const isPolygon = inputs.shape_mode === 'polygon' && polygonPoints.length >= 3;
+const polygonBounds = isPolygon
+  ? {
+      minX: Math.min(...polygonPoints.map((p: any) => p.x)),
+      maxX: Math.max(...polygonPoints.map((p: any) => p.x)),
+      minY: Math.min(...polygonPoints.map((p: any) => p.y)),
+      maxY: Math.max(...polygonPoints.map((p: any) => p.y))
+    }
+  : null;
+const lengthFt = Number(isPolygon && polygonBounds ? polygonBounds.maxX - polygonBounds.minX : inputs.deck_length_ft ?? 0);
+const widthFt = Number(isPolygon && polygonBounds ? polygonBounds.maxY - polygonBounds.minY : inputs.deck_width_ft ?? 0);
 const joistSpacingInInput = Number(inputs.joist_spacing_in ?? 16);
 const joistSpacingIn = String(inputs.decking_material ?? '') === 'composite'
   ? Math.min(joistSpacingInInput, 12)
   : joistSpacingInInput;
+const deckingMaterial = String(inputs.decking_material ?? 'wood');
 const joistCount = Math.max(2, Math.ceil((Math.max(lengthFt, 1) * 12) / Math.max(joistSpacingIn, 1)));
 const drawJoists = Math.max(2, Math.min(24, joistCount));
 const beamCountInput = Math.max(1, Number(inputs.beam_count ?? 1));
@@ -51,10 +66,26 @@ const beamSupportPosts = Number.isFinite(beamSupportPostsRaw) && beamSupportPost
   : Math.max(4, (Math.ceil(Math.max(lengthFt, 1) / postSpacingFt) + 1) * beamCountInput);
 const perimeterSupportPostsRaw = Number((constants as any).perimeter_railing_support_post_count ?? 0);
 const railingSupportRunRaw = Number((constants as any).railing_support_run_lf ?? 0);
+const ledgerSideRaw = String((inputs as any).ledger_side ?? (constants as any).ledger_side ?? 'top').toLowerCase();
+const ledgerSide = (ledgerSideRaw === 'right' || ledgerSideRaw === 'bottom' || ledgerSideRaw === 'left') ? ledgerSideRaw : 'top';
+const ledgerLineIndexRaw = Number((inputs as any).ledger_line_index ?? (constants as any).ledger_line_index ?? -1);
+const ledgerLineIndex = isPolygon && Number.isFinite(ledgerLineIndexRaw) && ledgerLineIndexRaw >= 0
+  ? Math.floor(ledgerLineIndexRaw) % Math.max(1, polygonPoints.length)
+  : null;
+const polygonHouseSideLengthFt = isPolygon && ledgerLineIndex !== null
+  ? Math.hypot(
+      (polygonPoints[(ledgerLineIndex + 1) % polygonPoints.length]?.x ?? 0) - (polygonPoints[ledgerLineIndex]?.x ?? 0),
+      (polygonPoints[(ledgerLineIndex + 1) % polygonPoints.length]?.y ?? 0) - (polygonPoints[ledgerLineIndex]?.y ?? 0)
+    )
+  : 0;
+const houseSideLengthFt = isPolygon
+  ? polygonHouseSideLengthFt
+  : (ledgerSide === 'left' || ledgerSide === 'right') ? Math.max(widthFt, 0) : Math.max(lengthFt, 0);
+const outFromHouseFt = (ledgerSide === 'left' || ledgerSide === 'right') ? Math.max(lengthFt, 0) : Math.max(widthFt, 0);
 const stairOpeningLf = Math.max(0, Number(inputs.stair_count ?? 0) * Number(inputs.stair_width_ft ?? 0));
 const openRunFallback = Math.max(
   0,
-  (inputs.ledger ? (Math.max(lengthFt, 0) + 2 * Math.max(widthFt, 0)) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0))))
+  (inputs.ledger ? Math.max((2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0))) - houseSideLengthFt, 0) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0))))
     - stairOpeningLf
 );
 const perimeterSupportPosts = Number.isFinite(perimeterSupportPostsRaw) && perimeterSupportPostsRaw > 0
@@ -77,6 +108,13 @@ const y0 = frameOriginY + (frameMaxH - drawH) / 2;
 const x1 = x0 + drawW;
 const y1 = y0 + drawH;
 const joistPitchPx = drawJoists > 1 ? drawW / (drawJoists - 1) : 0;
+const polygonScreenPoints = isPolygon && polygonBounds
+  ? polygonPoints.map((p: any) => ({
+      x: x0 + ((p.x - polygonBounds.minX) / Math.max(1, polygonBounds.maxX - polygonBounds.minX)) * drawW,
+      y: y1 - ((p.y - polygonBounds.minY) / Math.max(1, polygonBounds.maxY - polygonBounds.minY)) * drawH
+    }))
+  : [];
+const polygonPointsAttr = polygonScreenPoints.map((p: any) => `${p.x},${p.y}`).join(' ');
 const perimeterFt = Math.max(1, Math.max(lengthFt, 1) + 2 * Math.max(widthFt, 1));
 const corners = [
   { x: x0, y: y1 }, // bottom-left
@@ -85,17 +123,21 @@ const corners = [
   { x: x0, y: y0 } // top-left (ledger corner)
 ];
 const perimeterPoints = (() => {
+  if (isPolygon) {
+    return polygonScreenPoints.slice(0, Math.min(polygonScreenPoints.length, 40));
+  }
   const target = Math.max(0, Math.min(40, perimeterSupportPosts));
   if (target <= 0) return [] as Array<{ x: number; y: number }>;
   if (target <= 4) return corners.slice(0, target);
 
   const remaining = target - 4;
-  const sideDefs = [
-    // No perimeter posts along the ledger edge (house side).
-    { len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] }, // front edge
-    { len: Math.max(widthFt, 1), start: corners[1], end: corners[2] }, // right edge
-    { len: Math.max(widthFt, 1), start: corners[3], end: corners[0] } // left edge
+  const allSides = [
+    { key: 'bottom', len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] },
+    { key: 'right', len: Math.max(widthFt, 1), start: corners[1], end: corners[2] },
+    { key: 'top', len: Math.max(lengthFt, 1), start: corners[3], end: corners[2] },
+    { key: 'left', len: Math.max(widthFt, 1), start: corners[3], end: corners[0] }
   ];
+  const sideDefs = allSides.filter((s) => !(inputs.ledger && s.key === ledgerSide));
 
   const quotas = sideDefs.map((s) => (remaining * s.len) / perimeterFt);
   const extras = quotas.map((q) => Math.floor(q));
@@ -120,6 +162,26 @@ const perimeterPoints = (() => {
   }
 
   return points.slice(0, Math.min(target, 40));
+})();
+const ledgerLine = (() => {
+  if (!inputs.ledger) return null;
+  if (isPolygon && ledgerLineIndex !== null && polygonScreenPoints.length >= 2) {
+    const a = polygonScreenPoints[ledgerLineIndex];
+    const b = polygonScreenPoints[(ledgerLineIndex + 1) % polygonScreenPoints.length];
+    if (!a || !b) return null;
+    return {
+      x1: a.x,
+      y1: a.y,
+      x2: b.x,
+      y2: b.y,
+      lx: (a.x + b.x) / 2 - 32,
+      ly: (a.y + b.y) / 2 - 8
+    };
+  }
+  if (ledgerSide === 'right') return { x1: x1, y1: y0, x2: x1, y2: y1, lx: x1 - 36, ly: y0 - 8 };
+  if (ledgerSide === 'bottom') return { x1: x0, y1: y1, x2: x1, y2: y1, lx: x0, ly: y1 + 12 };
+  if (ledgerSide === 'left') return { x1: x0, y1: y0, x2: x0, y2: y1, lx: x0, ly: y0 - 8 };
+  return { x1: x0, y1: y0, x2: x1, y2: y0, lx: x0, ly: y0 - 8 };
 })();
 ---
 
@@ -146,11 +208,28 @@ const perimeterPoints = (() => {
     <div class="surface-muted rounded-md p-3">
       <p class="mb-2 text-sm font-semibold">Mini Diagram</p>
       <svg viewBox="0 0 320 200" class="w-full">
-        <rect x={x0} y={y0} width={drawW} height={drawH} fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.7"></rect>
-        <text x={x0} y={y0 - 8} font-size="10" fill="#0f766e">House / ledger side</text>
-        {Array.from({ length: drawJoists }).map((_, i) => (
-          <line x1={x0 + (drawW * i) / (drawJoists - 1)} y1={y0} x2={x0 + (drawW * i) / (drawJoists - 1)} y2={y1} stroke="#94a3b8" stroke-width="0.8"></line>
-        ))}
+        <defs>
+          {isPolygon && polygonPointsAttr && (
+            <clipPath id="deck-shape-clip">
+              <polygon points={polygonPointsAttr}></polygon>
+            </clipPath>
+          )}
+        </defs>
+        {isPolygon && polygonPointsAttr ? (
+          <polygon points={polygonPointsAttr} fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.7"></polygon>
+        ) : (
+          <rect x={x0} y={y0} width={drawW} height={drawH} fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.7"></rect>
+        )}
+        {ledgerLine && (
+          <text x={ledgerLine.lx} y={ledgerLine.ly} font-size="10" fill="#0f766e">
+            House / ledger side ({isPolygon ? `edge ${Number(ledgerLineIndex ?? 0) + 1}` : ledgerSide})
+          </text>
+        )}
+        <g clip-path={isPolygon && polygonPointsAttr ? 'url(#deck-shape-clip)' : undefined}>
+          {Array.from({ length: drawJoists }).map((_, i) => (
+            <line x1={x0 + (drawW * i) / (drawJoists - 1)} y1={y0} x2={x0 + (drawW * i) / (drawJoists - 1)} y2={y1} stroke="#94a3b8" stroke-width="0.8"></line>
+          ))}
+        </g>
         {drawJoists > 1 && (
           <>
             <line x1={x0} y1={y1 + 10} x2={x0 + joistPitchPx} y2={y1 + 10} stroke="#334155" stroke-width="1" />
@@ -159,22 +238,26 @@ const perimeterPoints = (() => {
             <text x={x0 + joistPitchPx / 2 - 14} y={y1 + 21} font-size="8" fill="#334155">{joistSpacingIn}" O.C.</text>
           </>
         )}
-        {Array.from({ length: beamCount }).map((_, i) => (
-          <line x1={x0} y1={y1 - (drawH * (i + 1)) / (beamCount + 1)} x2={x1} y2={y1 - (drawH * (i + 1)) / (beamCount + 1)} stroke="#b45309" stroke-width="2"></line>
-        ))}
-        {Array.from({ length: beamCount }).map((_, b) => {
-          const py = y1 - (drawH * (b + 1)) / (beamCount + 1);
-          return Array.from({ length: drawBeamPostsPerBeam }).map((__, p) => {
-            const px = x0 + (drawW * p) / Math.max(drawBeamPostsPerBeam - 1, 1);
-            return <circle cx={px} cy={py} r="2.6" fill="#1d4ed8"></circle>;
-          });
-        })}
+        <g clip-path={isPolygon && polygonPointsAttr ? 'url(#deck-shape-clip)' : undefined}>
+          {Array.from({ length: beamCount }).map((_, i) => (
+            <line x1={x0} y1={y1 - (drawH * (i + 1)) / (beamCount + 1)} x2={x1} y2={y1 - (drawH * (i + 1)) / (beamCount + 1)} stroke="#b45309" stroke-width="2"></line>
+          ))}
+          {Array.from({ length: beamCount }).map((_, b) => {
+            const py = y1 - (drawH * (b + 1)) / (beamCount + 1);
+            return Array.from({ length: drawBeamPostsPerBeam }).map((__, p) => {
+              const px = x0 + (drawW * p) / Math.max(drawBeamPostsPerBeam - 1, 1);
+              return <circle cx={px} cy={py} r="2.6" fill="#1d4ed8"></circle>;
+            });
+          })}
+        </g>
         {perimeterPoints.map((p) => (
           <circle cx={p.x} cy={p.y} r="2.2" stroke="#1d4ed8" stroke-width="1" fill="#ffffff"></circle>
         ))}
-        <line x1={x0} y1={y0} x2={x1} y2={y0} stroke="#0f766e" stroke-width="3"></line>
-        <text x={x0} y="178" font-size="10" fill="currentColor">Length (along house): {Number.isFinite(lengthFt) ? lengthFt.toFixed(1) : '0.0'} ft</text>
-        <text x={x0} y="190" font-size="10" fill="currentColor">Depth (out from house): {Number.isFinite(widthFt) ? widthFt.toFixed(1) : '0.0'} ft</text>
+        {ledgerLine && (
+          <line x1={ledgerLine.x1} y1={ledgerLine.y1} x2={ledgerLine.x2} y2={ledgerLine.y2} stroke="#0f766e" stroke-width="3"></line>
+        )}
+        <text x={x0} y="178" font-size="10" fill="currentColor">Length (along house): {Number.isFinite(houseSideLengthFt) ? houseSideLengthFt.toFixed(1) : '0.0'} ft</text>
+        <text x={x0} y="190" font-size="10" fill="currentColor">Depth (out from house): {Number.isFinite(outFromHouseFt) ? outFromHouseFt.toFixed(1) : '0.0'} ft</text>
       </svg>
       <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
         <span class="inline-flex items-center gap-1"><span class="h-0.5 w-4 bg-slate-400"></span>Joist</span>
@@ -187,8 +270,15 @@ const perimeterPoints = (() => {
     <div class="surface-muted rounded-md p-3 text-sm">
       <p class="font-semibold">Key Metrics</p>
       <p class="mt-2">Joist spacing: {joistSpacingIn}" O.C.</p>
+      <p>
+        Decking: {deckingMaterial === 'composite' ? 'Composite' : 'Wood'}
+        {deckingMaterial === 'composite' ? ' (forced max 12" O.C.)' : ''}
+      </p>
       <p>Joists: {joistCount}</p>
       <p>Beam lines: {beamCount}{beamCount !== beamCountInput ? ` (auto from ${beamCountInput})` : ''}</p>
+      <p>
+        Ledger location: {inputs.ledger ? (isPolygon ? `Edge ${Number(ledgerLineIndex ?? 0) + 1}` : ledgerSide) : 'Freestanding / no ledger'}
+      </p>
       <p>Beam support posts: {beamSupportPosts}</p>
       <p>Perimeter railing support posts: {perimeterSupportPosts} (open run {railingSupportRunLf.toFixed(0)} lf @ max {railingPostSpacingFt.toFixed(0)}ft, no ledger-edge posts)</p>
       <p>Railing: {Number.isFinite(railingLf) ? railingLf.toFixed(0) : '0'} lf</p>

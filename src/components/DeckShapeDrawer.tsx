@@ -32,10 +32,14 @@ function clampGrid(n: number, max: number) {
 
 export default function DeckShapeDrawer({
   points,
-  onChange
+  onChange,
+  selectedLedgerEdgeIndex,
+  onSelectLedgerEdge
 }: {
   points: Point[];
   onChange: (next: Point[], areaSqft: number, perimeterLf: number) => void;
+  selectedLedgerEdgeIndex?: number | null;
+  onSelectLedgerEdge?: (index: number) => void;
 }) {
   const cell = 16;
   const gridSize = 20;
@@ -165,21 +169,74 @@ export default function DeckShapeDrawer({
         ))}
 
         {points.length > 1 && (
-          <polyline
-            points={points.map((p) => `${p.x * cell},${p.y * cell}`).join(' ')}
-            fill="none"
-            stroke="#18453b"
-            strokeWidth="2"
-          />
+          <>
+            <polyline
+              points={points.map((p) => `${p.x * cell},${p.y * cell}`).join(' ')}
+              fill="none"
+              stroke="#18453b"
+              strokeWidth="2"
+            />
+            {points.length > 2 &&
+              points.map((p, i) => {
+                const next = points[(i + 1) % points.length];
+                if (!next) return null;
+                return (
+                  <line
+                    key={`edge-hit-${i}`}
+                    x1={p.x * cell}
+                    y1={p.y * cell}
+                    x2={next.x * cell}
+                    y2={next.y * cell}
+                    stroke="rgba(0,0,0,0)"
+                    strokeWidth="14"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectLedgerEdge?.(i);
+                    }}
+                    style={{ cursor: onSelectLedgerEdge ? 'pointer' : 'default' }}
+                  />
+                );
+              })}
+          </>
         )}
 
         {points.length > 2 && (
-          <polygon
-            points={points.map((p) => `${p.x * cell},${p.y * cell}`).join(' ')}
-            fill="rgba(24,69,59,0.18)"
-            stroke="#18453b"
-            strokeWidth="2"
-          />
+          <>
+            <polygon
+              points={points.map((p) => `${p.x * cell},${p.y * cell}`).join(' ')}
+              fill="rgba(24,69,59,0.18)"
+              stroke="#18453b"
+              strokeWidth="2"
+            />
+            {selectedLedgerEdgeIndex != null &&
+              (() => {
+                const idx = ((selectedLedgerEdgeIndex % points.length) + points.length) % points.length;
+                const a = points[idx];
+                const b = points[(idx + 1) % points.length];
+                if (!a || !b) return null;
+                return (
+                  <>
+                    <line
+                      x1={a.x * cell}
+                      y1={a.y * cell}
+                      x2={b.x * cell}
+                      y2={b.y * cell}
+                      stroke="#0f766e"
+                      strokeWidth="4"
+                    />
+                    <text
+                      x={((a.x + b.x) / 2) * cell}
+                      y={((a.y + b.y) / 2) * cell - 6}
+                      textAnchor="middle"
+                      fontSize="10"
+                      fill="#0f766e"
+                    >
+                      Ledger edge {idx + 1}
+                    </text>
+                  </>
+                );
+              })()}
+          </>
         )}
 
         {points.map((p, i) => (
@@ -202,7 +259,17 @@ export default function DeckShapeDrawer({
         <span className="rounded bg-slate-100 px-2 py-1">Points: {points.length}</span>
         <span className="rounded bg-slate-100 px-2 py-1">Area: {area.toFixed(2)} sqft</span>
         <span className="rounded bg-slate-100 px-2 py-1">Perimeter: {perimeter.toFixed(2)} lf</span>
+        {selectedLedgerEdgeIndex != null && points.length > 2 && (
+          <span className="rounded bg-teal-100 px-2 py-1 text-teal-800">
+            Ledger edge: {((selectedLedgerEdgeIndex % points.length) + points.length) % points.length + 1}
+          </span>
+        )}
       </div>
+      {points.length > 2 && onSelectLedgerEdge && (
+        <p className="mt-2 text-xs text-slate-500">
+          Tip: Click a polygon boundary line to set the house ledger edge.
+        </p>
+      )}
 
       {points.length > 0 && (
         <div className="mt-3 overflow-x-auto">

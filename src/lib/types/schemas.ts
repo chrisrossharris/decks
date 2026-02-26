@@ -21,6 +21,7 @@ export const designInputsSchema = z.object({
   decking_board_width_in: z.coerce.number().positive().default(5.5),
   joist_spacing_in: spacingInSchema.default(16),
   ledger: z.coerce.boolean().default(true),
+  ledger_side: z.enum(['top', 'right', 'bottom', 'left']).default('top'),
   beam_count: z.coerce.number().int().min(1).default(1),
   post_size: z.enum(['4x4', '6x6']).default('6x6'),
   post_spacing_ft: z.coerce.number().positive().default(6),
@@ -43,6 +44,10 @@ export const designInputsSchema = z.object({
   cover_beam_size: z.string().max(120).optional(),
   shape_mode: z.enum(['rectangle', 'polygon']).default('rectangle'),
   deck_polygon_points: z.array(z.object({ x: z.number(), y: z.number() })).optional().default([]),
+  ledger_line_index: z.preprocess((value) => {
+    if (value === '' || value === undefined || value === null) return undefined;
+    return Number(value);
+  }, z.number().int().min(0).optional().nullable()),
   deck_area_override_sqft: optionalPositive,
   deck_perimeter_override_lf: optionalPositive,
   fence_length_ft: optionalNonNegative.default(0),

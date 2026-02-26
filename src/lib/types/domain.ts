@@ -5,6 +5,7 @@ export type Unit = 'ea' | 'lf' | 'sqft' | 'yd' | 'bag' | 'box';
 export type DeckingMaterial = 'wood' | 'composite';
 export type RailingType = 'none' | 'wood' | 'aluminum' | 'cable';
 export type RailingSides = 'all' | '3_sides' | 'custom';
+export type LedgerSide = 'top' | 'right' | 'bottom' | 'left';
 export type RoofType = 'shed' | 'gable';
 export type RoofingMaterial = 'shingle' | 'metal';
 export type CeilingFinish = 'none' | 'drywall' | 'tongue_groove';
@@ -18,6 +19,7 @@ export interface DesignInputs {
   decking_board_width_in: number;
   joist_spacing_in: 12 | 16 | 24;
   ledger: boolean;
+  ledger_side?: LedgerSide;
   beam_count: number;
   post_size: '4x4' | '6x6';
   post_spacing_ft: number;
@@ -37,6 +39,7 @@ export interface DesignInputs {
   cover_beam_size?: string;
   shape_mode?: 'rectangle' | 'polygon';
   deck_polygon_points?: Array<{ x: number; y: number }>;
+  ledger_line_index?: number | null;
   deck_area_override_sqft?: number | null;
   deck_perimeter_override_lf?: number | null;
   fence_length_ft?: number;

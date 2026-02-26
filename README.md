@@ -141,14 +141,20 @@ This section documents the current rules engine behavior so field leadership can
   - Increases until joist span rule is met:
   - `deck_length_ft / (effective_beam_count + ledger_support_lines) <= max_joist_span_ft`
 - Joist count:
-  - `joist_count = floor((framing_width_ft * 12) / effective_joist_spacing_in) + 1`
+  - `joist_count = ceil((deck_length_ft * 12) / effective_joist_spacing_in)`
+  - Note: joist lines are drawn from ledger to outer edge (across deck depth).
 
 ### 3) Posts + Footings
 - Beam support posts:
   - `post_count_per_beam = ceil(deck_length_ft / post_spacing_ft) + 1`
   - `beam_support_post_count = post_count_per_beam * effective_beam_count`
+  - Posts are distributed evenly along each beam line (not one post per joist).
 - Perimeter railing support posts:
-  - `perimeter_railing_support_post_count = ceil(railing_lf / railing_post_spacing_ft) + 1`
+  - `railing_support_run_lf` uses open perimeter run:
+    - with ledger: `deck_length_ft + 2*deck_width_ft - stair_opening_lf`
+    - without ledger: `2*(deck_length_ft + deck_width_ft) - stair_opening_lf`
+  - custom shape uses polygon perimeter and excludes house/ledger edge when ledger is present
+  - `perimeter_railing_support_post_count = ceil(railing_support_run_lf / railing_post_spacing_ft) + 1`
   - default `railing_post_spacing_ft = 6`
 - Final structural post count:
   - `post_count_total = max(beam_support_post_count, perimeter_railing_support_post_count, 4)`
@@ -193,6 +199,9 @@ This section documents the current rules engine behavior so field leadership can
 ### 8) Practical Disclaimer
 - This tool is for transparent estimating/takeoff assumptions, not stamped engineering.
 - Review post/beam/joist/span assumptions against local code, load conditions, and site constraints before build.
+- Diagram behavior:
+  - Mini diagram, client review diagram, and PDF framing diagram all share the same beam/joist/post assumptions.
+  - Diagram is scaled proportionally to length:depth ratio for visual continuity (conceptual only).
 
 ## Netlify Deployment Checklist
 1. Create a Netlify site from this repo.

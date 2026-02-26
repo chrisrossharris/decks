@@ -26,6 +26,8 @@ export default function DesignInputsForm({
   const isCovered = watch('is_covered');
   const shapeMode = watch('shape_mode') ?? 'rectangle';
   const polygonPoints = watch('deck_polygon_points') ?? [];
+  const ledgerLineIndex = watch('ledger_line_index');
+  const ledgerEnabled = watch('ledger');
   const designMode = watch('design_mode') ?? (projectType === 'fence' ? 'fence' : 'deck');
   const deckingMaterial = watch('decking_material');
 
@@ -42,7 +44,9 @@ export default function DesignInputsForm({
       ...defaults,
       design_mode: projectType === 'fence' ? 'fence' : 'deck',
       shape_mode: defaults.shape_mode ?? ((defaults.deck_polygon_points?.length ?? 0) > 0 ? 'polygon' : 'rectangle'),
+      ledger_side: defaults.ledger_side ?? 'top',
       deck_polygon_points: defaults.deck_polygon_points ?? [],
+      ledger_line_index: defaults.ledger_line_index ?? null,
       deck_area_override_sqft: defaults.deck_area_override_sqft ?? null,
       deck_perimeter_override_lf: defaults.deck_perimeter_override_lf ?? null
     } as FormData;
@@ -54,6 +58,18 @@ export default function DesignInputsForm({
       clearErrors('deck_polygon_points');
     }
   }, [shapeMode, clearErrors]);
+
+  useEffect(() => {
+    if (shapeMode !== 'polygon' || !ledgerEnabled) return;
+    if (!Array.isArray(polygonPoints) || polygonPoints.length < 3) {
+      setValue('ledger_line_index', null, { shouldDirty: true });
+      return;
+    }
+    const current = typeof ledgerLineIndex === 'number' ? ledgerLineIndex : Number(ledgerLineIndex);
+    if (!Number.isFinite(current) || current < 0 || current >= polygonPoints.length) {
+      setValue('ledger_line_index', 0, { shouldDirty: true });
+    }
+  }, [shapeMode, polygonPoints, ledgerLineIndex, setValue, ledgerEnabled]);
 
   useEffect(() => {
     if (designMode === 'deck' && deckingMaterial === 'composite') {
@@ -82,6 +98,7 @@ export default function DesignInputsForm({
     }
 
     if (payload.shape_mode !== 'polygon') {
+      payload.ledger_line_index = null;
       payload.deck_area_override_sqft = null;
       payload.deck_perimeter_override_lf = null;
     }
@@ -179,6 +196,33 @@ export default function DesignInputsForm({
         <input type="checkbox" {...register('ledger')} />
         <span className="label !mt-0">Ledger</span>
       </label>
+      {watch('ledger') && (
+        <label>
+          <p className="label">Ledger Side (House Side)</p>
+          <select className="input" {...register('ledger_side')}>
+            <option value="top">Top (default)</option>
+            <option value="right">Right</option>
+            <option value="bottom">Bottom</option>
+            <option value="left">Left</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Choose where the house/ledger connection is located for railing and diagram logic.
+          </p>
+        </label>
+      )}
+      {watch('ledger') && shapeMode === 'polygon' && (
+        <div className="rounded-md border border-slate-200 p-3">
+          <p className="label">Ledger Line (Polygon Edge)</p>
+          <p className="mt-1 text-sm text-slate-700">
+            {polygonPoints.length >= 3 && Number.isFinite(Number(ledgerLineIndex))
+              ? `Selected: Edge ${Number(ledgerLineIndex) + 1}`
+              : 'Selected: none'}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Click an edge in the polygon canvas below to choose the house ledger line.
+          </p>
+        </div>
+      )}
       <label className="flex items-center gap-2">
         <input type="checkbox" {...register('is_covered')} />
         <span className="label !mt-0">Covered Deck Add-on</span>
@@ -202,10 +246,22 @@ export default function DesignInputsForm({
           <div className="mt-3">
             <DeckShapeDrawer
               points={polygonPoints}
+              selectedLedgerEdgeIndex={typeof ledgerLineIndex === 'number' ? ledgerLineIndex : (ledgerLineIndex == null ? null : Number(ledgerLineIndex))}
+              onSelectLedgerEdge={(index) => {
+                setValue('ledger_line_index', index, { shouldDirty: true });
+              }}
               onChange={(next, areaSqft, perimeterLf) => {
                 setValue('deck_polygon_points', next, { shouldDirty: true });
                 setValue('deck_area_override_sqft', areaSqft > 0 ? areaSqft : null, { shouldDirty: true });
                 setValue('deck_perimeter_override_lf', perimeterLf > 0 ? perimeterLf : null, { shouldDirty: true });
+                if ((ledgerEnabled ?? false) && next.length >= 3) {
+                  const current = typeof ledgerLineIndex === 'number' ? ledgerLineIndex : Number(ledgerLineIndex);
+                  if (!Number.isFinite(current) || current < 0 || current >= next.length) {
+                    setValue('ledger_line_index', 0, { shouldDirty: true });
+                  }
+                } else {
+                  setValue('ledger_line_index', null, { shouldDirty: true });
+                }
               }}
             />
             {errors.deck_polygon_points && (
