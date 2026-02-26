@@ -41,12 +41,17 @@ export const POST: APIRoute = async (context) => {
           })
         };
 
+    const normalizedInputs = parseJsonObject(inputs?.inputs_json, {});
+
     const pdf = await buildPdf('internal', {
       project,
       estimate: computedEstimate,
       labor: normalizedLabor,
       items: takeoff.items,
-      inputs: parseJsonObject(inputs?.inputs_json, {})
+      inputs: {
+        ...normalizedInputs,
+        takeoff_assumptions_json: takeoff.assumptions_json
+      }
     });
 
     const storagePath = `projects/${projectId}/internal-${Date.now()}.pdf`;

@@ -55,6 +55,55 @@ function toPolygonScreenPoints(
   }));
 }
 
+function computePerimeterPointsRect(
+  targetCount: number,
+  lengthFt: number,
+  widthFt: number,
+  frame: { x0: number; x1: number; y0: number; y1: number }
+) {
+  const corners = [
+    { x: frame.x0, y: frame.y1 }, // bottom-left
+    { x: frame.x1, y: frame.y1 }, // bottom-right
+    { x: frame.x1, y: frame.y0 }, // top-right (ledger corner)
+    { x: frame.x0, y: frame.y0 } // top-left (ledger corner)
+  ];
+  const target = Math.max(0, Math.min(80, Math.floor(targetCount)));
+  if (target <= 0) return [] as Array<{ x: number; y: number }>;
+  if (target <= 4) return corners.slice(0, target);
+
+  const perimeterFt = Math.max(1, Math.max(lengthFt, 1) + 2 * Math.max(widthFt, 1));
+  const remaining = target - 4;
+  const sideDefs = [
+    { len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] }, // front edge
+    { len: Math.max(widthFt, 1), start: corners[1], end: corners[2] }, // right edge
+    { len: Math.max(widthFt, 1), start: corners[3], end: corners[0] } // left edge
+  ];
+
+  const quotas = sideDefs.map((s) => (remaining * s.len) / perimeterFt);
+  const extras = quotas.map((q) => Math.floor(q));
+  let allocated = extras.reduce((sum, n) => sum + n, 0);
+  const remainders = quotas.map((q, i) => ({ i, rem: q - Math.floor(q) })).sort((a, b) => b.rem - a.rem);
+  for (let r = 0; allocated < remaining && r < remainders.length; r += 1) {
+    extras[remainders[r].i] += 1;
+    allocated += 1;
+  }
+
+  const points: Array<{ x: number; y: number }> = [...corners];
+  for (let sideIndex = 0; sideIndex < sideDefs.length; sideIndex += 1) {
+    const side = sideDefs[sideIndex];
+    const count = extras[sideIndex];
+    for (let i = 1; i <= count; i += 1) {
+      const t = i / (count + 1);
+      points.push({
+        x: side.start.x + (side.end.x - side.start.x) * t,
+        y: side.start.y + (side.end.y - side.start.y) * t
+      });
+    }
+  }
+
+  return points.slice(0, target);
+}
+
 function FramingSchematic({ inputs }: { inputs?: any }) {
   if (!inputs) return null;
 
@@ -82,21 +131,71 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
     1,
     Number(isPolygon && polyBounds ? polyBounds.maxY - polyBounds.minY : inputs.deck_width_ft ?? 0)
   );
-  const joistSpacingIn = Math.max(1, Number(inputs.joist_spacing_in ?? 16));
-  const joistCount = Math.max(1, Math.ceil((lengthFt * 12) / joistSpacingIn));
-  const beamCount = Math.max(1, Number(inputs.beam_count ?? 1));
-  const postSpacingFt = Math.max(1, Number(inputs.post_spacing_ft ?? 6));
-  const postCountPerBeam = Math.ceil(lengthFt / postSpacingFt) + 1;
-  const postCountTotal = postCountPerBeam * beamCount;
+  const joistSpacingInInput = Math.max(1, Number(inputs.joist_spacing_in ?? 16));
+  const joistSpacingIn = String(inputs.decking_material ?? '') === 'composite'
+    ? Math.min(joistSpacingInInput, 12)
+    : joistSpacingInInput;
+  const joistCount = Math.max(2, Math.ceil((lengthFt * 12) / joistSpacingIn));
+  const assumptionConstants = (() => {
+    const rawAssumptions = (inputs as any).takeoff_assumptions_json;
+    if (!rawAssumptions) return {};
+    if (typeof rawAssumptions === 'string') {
+      try {
+        const parsed = JSON.parse(rawAssumptions);
+        return typeof parsed?.constants === 'object' && parsed.constants ? parsed.constants : {};
+      } catch {
+        return {};
+      }
+    }
+    return typeof rawAssumptions?.constants === 'object' && rawAssumptions.constants ? rawAssumptions.constants : {};
+  })();
 
-  const x = 36;
-  const y = 28;
-  const w = 250;
-  const h = 130;
+  const beamCountInput = Math.max(1, Number(inputs.beam_count ?? 1));
+  const beamCountEffective = Number((assumptionConstants as any).effective_beam_count ?? 0);
+  const beamCount = Number.isFinite(beamCountEffective) && beamCountEffective > 0 ? beamCountEffective : beamCountInput;
+  const postSpacingFt = Math.max(1, Number(inputs.post_spacing_ft ?? 6));
+  const postCountPerBeamRaw = Number((assumptionConstants as any).post_count_per_beam ?? 0);
+  const postCountPerBeam = Number.isFinite(postCountPerBeamRaw) && postCountPerBeamRaw > 0
+    ? postCountPerBeamRaw
+    : Math.ceil(lengthFt / postSpacingFt) + 1;
+  const postCountTotalRaw = Number((assumptionConstants as any).beam_support_post_count ?? 0);
+  const postCountTotal = Number.isFinite(postCountTotalRaw) && postCountTotalRaw > 0
+    ? postCountTotalRaw
+    : postCountPerBeam * beamCount;
+  const defaultRailingPostSpacingFtRaw = Number((assumptionConstants as any).default_railing_post_spacing_ft ?? 0);
+  const defaultRailingPostSpacingFt = Number.isFinite(defaultRailingPostSpacingFtRaw) && defaultRailingPostSpacingFtRaw > 0
+    ? defaultRailingPostSpacingFtRaw
+    : 6;
+  const stairOpeningLf = Math.max(0, Number(inputs.stair_count ?? 0) * Number(inputs.stair_width_ft ?? 0));
+  const openRunFallback = Math.max(
+    0,
+    (inputs.ledger ? (Math.max(lengthFt, 0) + 2 * Math.max(widthFt, 0)) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0)))) - stairOpeningLf
+  );
+  const railingSupportRunLfRaw = Number((assumptionConstants as any).railing_support_run_lf ?? 0);
+  const railingSupportRunLf = Number.isFinite(railingSupportRunLfRaw) && railingSupportRunLfRaw > 0
+    ? railingSupportRunLfRaw
+    : openRunFallback;
+  const perimeterSupportPostsRaw = Number((assumptionConstants as any).perimeter_railing_support_post_count ?? 0);
+  const perimeterSupportPosts = Number.isFinite(perimeterSupportPostsRaw) && perimeterSupportPostsRaw > 0
+    ? perimeterSupportPostsRaw
+    : Math.max(0, Math.ceil(railingSupportRunLf / defaultRailingPostSpacingFt) + 1);
+
+  const frameOriginX = 36;
+  const frameOriginY = 28;
+  const frameMaxW = 250;
+  const frameMaxH = 130;
+  const scale = Math.min(frameMaxW / Math.max(lengthFt, 1), frameMaxH / Math.max(widthFt, 1));
+  const w = Math.max(50, Math.min(frameMaxW, Math.max(lengthFt, 1) * scale));
+  const h = Math.max(50, Math.min(frameMaxH, Math.max(widthFt, 1) * scale));
+  const x = frameOriginX + (frameMaxW - w) / 2;
+  const y = frameOriginY + (frameMaxH - h) / 2;
   const drawJoists = Math.max(2, Math.min(joistCount, 80));
   const drawBeams = Math.max(1, Math.min(beamCount, 6));
-  const drawPosts = Math.max(2, Math.min(postCountPerBeam, 40));
+  const drawPosts = Math.max(2, Math.min(Math.ceil(postCountTotal / Math.max(beamCount, 1)), 40));
   const beamSpacingFt = widthFt / (beamCount + 1);
+  const perimeterPoints = !isPolygon
+    ? computePerimeterPointsRect(perimeterSupportPosts, lengthFt, widthFt, { x0: x, x1: x + w, y0: y, y1: y + h })
+    : [];
 
   return (
     <View style={styles.section}>
@@ -131,17 +230,18 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
           })}
           {drawJoists > 1 ? (
             <>
-              <Line x1={x} y1={y + 17} x2={x + w / (drawJoists - 1)} y2={y + 17} stroke="#334155" strokeWidth={1} />
-              <Line x1={x} y1={y + 14} x2={x} y2={y + 20} stroke="#334155" strokeWidth={1} />
+              <Line x1={x} y1={y + h + 8} x2={x + w / (drawJoists - 1)} y2={y + h + 8} stroke="#334155" strokeWidth={1} />
+              <Line x1={x} y1={y + h + 5} x2={x} y2={y + h + 11} stroke="#334155" strokeWidth={1} />
               <Line
                 x1={x + w / (drawJoists - 1)}
-                y1={y + 14}
+                y1={y + h + 5}
                 x2={x + w / (drawJoists - 1)}
-                y2={y + 20}
+                y2={y + h + 11}
                 stroke="#334155"
                 strokeWidth={1}
               />
-              <Text style={{ fontSize: 8 }} x={x + w / (drawJoists - 1) / 2 - 16} y={y + 13}>
+              <Rect x={x + w / (drawJoists - 1) / 2 - 17} y={y + h + 12} width={34} height={10} fill="#fff" />
+              <Text style={{ fontSize: 8 }} x={x + w / (drawJoists - 1) / 2 - 16} y={y + h + 19}>
                 {`${joistSpacingIn}" O.C.`}
               </Text>
             </>
@@ -163,6 +263,9 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
               return <Circle key={`post-${b}-${p}`} cx={px} cy={py} r={2.8} fill="#1d4ed8" />;
             });
           })}
+          {perimeterPoints.map((pt, i) => (
+            <Circle key={`rail-post-${i}`} cx={pt.x} cy={pt.y} r={2.4} stroke="#1d4ed8" strokeWidth={1} fill="#ffffff" />
+          ))}
 
           {isPolygon && polyBounds
             ? toPolygonScreenPoints(polygonPoints, polyBounds, { x, y, w, h }).map((pt, i) => (
@@ -178,10 +281,13 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
             )}
         </Svg>
         <Text style={styles.caption}>
-          Joists: {joistCount} @ {joistSpacingIn}" O.C. | Ledger: {inputs.ledger ? 'Yes' : 'No'} | Beams: {beamCount} | Structural posts: {postCountTotal} ({postCountPerBeam}/beam)
+          Joists: {joistCount} @ {joistSpacingIn}" O.C. | Ledger: {inputs.ledger ? 'Yes' : 'No'} | Beams: {beamCount}{beamCount !== beamCountInput ? ` (auto from ${beamCountInput})` : ''} | Beam support posts: {postCountTotal} ({Math.ceil(postCountTotal / Math.max(beamCount, 1))}/beam)
         </Text>
         <Text style={styles.caption}>
-          Post spacing: ~{postSpacingFt.toFixed(1)} ft | Beam spacing: ~{beamSpacingFt.toFixed(1)} ft
+          Perimeter railing support posts: {perimeterSupportPosts} (open run {railingSupportRunLf.toFixed(0)} lf @ max {defaultRailingPostSpacingFt.toFixed(0)}ft, no ledger-edge posts)
+        </Text>
+        <Text style={styles.caption}>
+          Beam post spacing: ~{postSpacingFt.toFixed(1)} ft | Beam spacing: ~{beamSpacingFt.toFixed(1)} ft
         </Text>
         <View style={{ marginTop: 6 }}>
           <Text style={styles.caption}>Legend:</Text>
@@ -200,7 +306,11 @@ function FramingSchematic({ inputs }: { inputs?: any }) {
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#1d4ed8', marginRight: 4 }} />
-              <Text style={styles.caption}>Structural post</Text>
+              <Text style={styles.caption}>Beam support post</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, borderWidth: 1, borderStyle: 'solid', borderColor: '#1d4ed8', backgroundColor: '#ffffff', marginRight: 4 }} />
+              <Text style={styles.caption}>Perimeter railing support post</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, borderWidth: 1, borderStyle: 'solid', borderColor: '#64748b', backgroundColor: '#ffffff', marginRight: 4 }} />

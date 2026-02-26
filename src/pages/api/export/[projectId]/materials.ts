@@ -13,11 +13,15 @@ export const POST: APIRoute = async (context) => {
     const takeoff = await latestTakeoff(projectId);
     const inputs = await latestDesignInputs(projectId);
     if (!project || !takeoff) return context.redirect(`/projects/${projectId}/export?error=missing_project_or_takeoff`);
+    const normalizedInputs = parseJsonObject(inputs?.inputs_json, {});
 
     const pdf = await buildPdf('materials', {
       project,
       items: takeoff.items,
-      inputs: parseJsonObject(inputs?.inputs_json, {})
+      inputs: {
+        ...normalizedInputs,
+        takeoff_assumptions_json: takeoff.assumptions_json
+      }
     });
     const storagePath = `projects/${projectId}/materials-${Date.now()}.pdf`;
     await storePdf(storagePath, pdf);

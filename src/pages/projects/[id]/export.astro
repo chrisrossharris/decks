@@ -47,7 +47,7 @@ const inputs = parseJsonObject(inputsRow?.inputs_json, {});
         href={readyToShare ? `/projects/${projectId}/share` : '#'}
         class:list={[
           'rounded-md px-4 py-2 text-sm font-semibold',
-          readyToShare ? 'bg-pine text-white' : 'cursor-not-allowed bg-slate-700 text-slate-300'
+          readyToShare ? 'bg-pine text-white' : 'btn-disabled'
         ]}
         aria-disabled={!readyToShare}
       >

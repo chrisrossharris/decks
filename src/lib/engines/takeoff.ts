@@ -697,6 +697,7 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         default_railing_post_spacing_ft: railingPostSpacingFt,
         beam_double_ply_length_ft: beamDoublePlyLengthFt,
         beam_triple_ply_length_ft: beamTriplePlyLengthFt,
+        effective_beam_count: effectiveBeamCount,
         available_board_lengths_ft: AVAILABLE_BOARD_LENGTHS_FT.join(','),
         available_framing_lengths_ft: AVAILABLE_FRAMING_LENGTHS_FT.join(','),
         joist_stock_mix: formatStockMix(joistStock.totals),
