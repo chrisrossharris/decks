@@ -1,0 +1,19 @@
+---
+interface Props {
+  projectId: string;
+}
+
+const { projectId } = Astro.props;
+---
+
+<nav class="mb-4 flex flex-wrap gap-2">
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/inputs`}>Inputs</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/takeoff`}>Takeoff</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/labor`}>Labor</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/estimate`}>Estimate</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/export`}>Export</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/share`}>Share</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/schedule`}>Schedule</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/collaborators`}>Collaborators</a>
+  <a class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" href={`/projects/${projectId}/media`}>Images</a>
+</nav>

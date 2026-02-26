@@ -1,0 +1,106 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import ProjectSubnav from '@/components/ProjectSubnav.astro';
+import ProjectSummaryCard from '@/components/ProjectSummaryCard.astro';
+import { getProject, latestDesignInputs, latestEstimate, latestLaborPlan, latestTakeoff, listProjectDocuments } from '@/lib/db/repo';
+import { parseJsonObject } from '@/lib/utils/json';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+
+const projectId = Astro.params.id as string;
+const project = await getProject(userId, projectId);
+if (!project) throw new Error('Project not found');
+const documents = await listProjectDocuments(projectId);
+const ok = Astro.url.searchParams.get('ok');
+const error = Astro.url.searchParams.get('error');
+const hasMaterials = documents.some((d: any) => d.kind === 'materials_pdf');
+const hasInternal = documents.some((d: any) => d.kind === 'internal_estimate_pdf');
+const hasProposal = documents.some((d: any) => d.kind === 'client_proposal_pdf');
+const readyToShare = hasProposal;
+const inputsRow = await latestDesignInputs(projectId);
+const takeoff = await latestTakeoff(projectId);
+const labor = await latestLaborPlan(projectId);
+const estimate = await latestEstimate(projectId);
+const inputs = parseJsonObject(inputsRow?.inputs_json, {});
+---
+
+<AppLayout title={`Export PDFs - ${project.name}`}>
+  <ProjectSubnav projectId={projectId} />
+  {ok && (
+    <div class="alert-success mb-3">
+      Export generated: <span class="font-semibold">{ok}</span>
+    </div>
+  )}
+  {error && (
+    <div class="alert-error mb-3">
+      Export failed: <span class="font-semibold">{error}</span>
+    </div>
+  )}
+  <section class="mb-4 card p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="font-display text-lg font-semibold">What to do next</h2>
+        <p class="mt-1 text-sm text-slate-400">Finish exports, share proposal, then track client decision and scheduling.</p>
+      </div>
+      <a
+        href={readyToShare ? `/projects/${projectId}/share` : '#'}
+        class:list={[
+          'rounded-md px-4 py-2 text-sm font-semibold',
+          readyToShare ? 'bg-pine text-white' : 'cursor-not-allowed bg-slate-700 text-slate-300'
+        ]}
+        aria-disabled={!readyToShare}
+      >
+        {readyToShare ? 'Next: Share With Client' : 'Generate Proposal PDF First'}
+      </a>
+    </div>
+    <div class="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={hasMaterials ? 'status-done' : 'status-pending'}>{hasMaterials ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Materials List PDF</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={hasInternal ? 'status-done' : 'status-pending'}>{hasInternal ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Internal Estimate PDF</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={hasProposal ? 'status-done' : 'status-pending'}>{hasProposal ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Client Proposal PDF</p>
+      </div>
+    </div>
+  </section>
+
+  <ProjectSummaryCard inputs={inputs} takeoff={takeoff} labor={labor} estimate={estimate} />
+
+  <div class="card p-4 space-y-3">
+    <form method="post" action={`/api/export/${projectId}/materials`}>
+      <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Generate Materials List PDF</button>
+    </form>
+    <form method="post" action={`/api/export/${projectId}/internal`}>
+      <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Generate Internal Estimate PDF</button>
+    </form>
+    <form method="post" action={`/api/export/${projectId}/proposal`}>
+      <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Generate Client Proposal PDF</button>
+    </form>
+  </div>
+
+  <section class="mt-4 card p-4">
+    <h2 class="font-display text-lg font-semibold">Generated Documents</h2>
+    {documents.length === 0 ? (
+      <p class="mt-2 text-sm text-slate-600">No documents yet.</p>
+    ) : (
+      <div class="mt-3 space-y-2">
+        {documents.map((doc: any) => (
+          <a
+            href={`/api/projects/${projectId}/documents/${doc.id}`}
+            target="_blank"
+            class="card-link block rounded-md px-3 py-2 text-sm"
+          >
+            <span class="font-semibold">{doc.kind}</span>
+            <span class="ml-2 text-slate-500">{new Date(doc.created_at).toLocaleString()}</span>
+          </a>
+        ))}
+      </div>
+    )}
+  </section>
+</AppLayout>

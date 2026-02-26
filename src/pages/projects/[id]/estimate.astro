@@ -1,0 +1,57 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import EstimatePanel from '@/components/EstimatePanel';
+import ProjectSummaryCard from '@/components/ProjectSummaryCard.astro';
+import ProjectSubnav from '@/components/ProjectSubnav.astro';
+import { getProject, latestDesignInputs, latestEstimate, latestLaborPlan, latestTakeoff } from '@/lib/db/repo';
+import { parseJsonObject } from '@/lib/utils/json';
+import { money } from '@/lib/utils/format';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+
+const projectId = Astro.params.id as string;
+const project = await getProject(userId, projectId);
+if (!project) throw new Error('Project not found');
+
+const estimate = await latestEstimate(projectId);
+const inputsRow = await latestDesignInputs(projectId);
+const takeoff = await latestTakeoff(projectId);
+const labor = await latestLaborPlan(projectId);
+const inputs = parseJsonObject(inputsRow?.inputs_json, {});
+const items = Array.isArray(takeoff?.items) ? takeoff.items : [];
+const posts = Number(items.find((i: any) => i.category === 'Footings' && String(i.name ?? '').includes('PT structural post'))?.qty ?? 0);
+const bags = Number(items.find((i: any) => i.category === 'Footings' && i.name === 'Concrete bag')?.qty ?? 0);
+const takeoffTotals = parseJsonObject((takeoff as any)?.totals_json, {} as Record<string, unknown>);
+const deckSqft = Number(
+  (takeoffTotals as any).deck_sqft ??
+  (takeoff as any)?.totals?.deck_sqft ??
+  (Number(inputs.deck_length_ft ?? 0) * Number(inputs.deck_width_ft ?? 0))
+);
+---
+
+<AppLayout title={`Estimate - ${project.name}`}>
+  <ProjectSubnav projectId={projectId} />
+  <section class="mb-4 card p-3">
+    <div class="grid gap-2 sm:grid-cols-4">
+      <div class="surface-muted rounded-md p-2">
+        <p class="label">Deck Area</p>
+        <p class="font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} sqft</p>
+      </div>
+      <div class="surface-muted rounded-md p-2">
+        <p class="label">Structural Posts</p>
+        <p class="font-semibold">{posts}</p>
+      </div>
+      <div class="surface-muted rounded-md p-2">
+        <p class="label">Concrete Bags</p>
+        <p class="font-semibold">{bags}</p>
+      </div>
+      <div class="surface-muted rounded-md p-2">
+        <p class="label">Current Total</p>
+        <p class="font-semibold">{money(estimate?.grand_total)}</p>
+      </div>
+    </div>
+  </section>
+  <EstimatePanel client:load projectId={projectId} estimate={estimate} />
+  <ProjectSummaryCard inputs={inputs} takeoff={takeoff} labor={labor} estimate={estimate} />
+</AppLayout>

@@ -1,0 +1,10 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import { SignIn } from '@clerk/astro/components';
+---
+
+<AppLayout title="Login">
+  <div class="card p-6">
+    <SignIn routing="path" path="/login" />
+  </div>
+</AppLayout>

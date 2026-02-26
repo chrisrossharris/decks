@@ -1,0 +1,70 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import ProjectSubnav from '@/components/ProjectSubnav.astro';
+import { getProject, getScheduleHandoff, listProposalReviews } from '@/lib/db/repo';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+
+const projectId = Astro.params.id as string;
+const project = await getProject(userId, projectId);
+if (!project) throw new Error('Project not found');
+
+const handoff = await getScheduleHandoff(projectId);
+const reviews = await listProposalReviews(projectId);
+const approved = reviews.find((r: any) => r.decision === 'approved');
+---
+
+<AppLayout title={`Schedule Handoff - ${project.name}`}>
+  <ProjectSubnav projectId={projectId} />
+  <section class="card p-4">
+    <h2 class="font-display text-lg font-semibold">Scheduling Handoff</h2>
+    <p class="mt-1 text-sm text-slate-600">Capture scheduling readiness after client decision and move through simple stage tracking.</p>
+    {approved ? (
+      <p class="alert-success mt-2">
+        Approved by {approved.reviewer_name} on {new Date(approved.created_at).toLocaleString()}
+      </p>
+    ) : (
+      <p class="alert-warn mt-2">
+        No recorded approval yet. You can still set preliminary schedule details.
+      </p>
+    )}
+    <form class="mt-4 grid gap-3 sm:grid-cols-2" method="post" action={`/api/projects/${projectId}/schedule`}>
+      <label>
+        <p class="label">Stage</p>
+        <select class="input" name="stage" required>
+          {['backlog', 'ready', 'scheduled', 'in_progress', 'done'].map((stage) => (
+            <option value={stage} selected={(handoff?.stage ?? 'backlog') === stage}>{stage.replaceAll('_', ' ')}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <p class="label">Estimated Duration (days)</p>
+        <input class="input" type="number" min="1" name="estimated_duration_days" value={handoff?.estimated_duration_days ?? ''} />
+      </label>
+      <label>
+        <p class="label">Preferred Start</p>
+        <input class="input" type="date" name="preferred_start_date" value={handoff?.preferred_start_date?.toString().slice(0, 10) ?? ''} />
+      </label>
+      <label>
+        <p class="label">Scheduled Start</p>
+        <input class="input" type="date" name="scheduled_start_date" value={handoff?.scheduled_start_date?.toString().slice(0, 10) ?? ''} />
+      </label>
+      <label>
+        <p class="label">Target Completion</p>
+        <input class="input" type="date" name="target_completion_date" value={handoff?.target_completion_date?.toString().slice(0, 10) ?? ''} />
+      </label>
+      <label>
+        <p class="label">Assigned Lead</p>
+        <input class="input" name="assigned_lead" value={handoff?.assigned_lead ?? ''} />
+      </label>
+      <label class="sm:col-span-2">
+        <p class="label">Notes</p>
+        <textarea class="input min-h-[100px]" name="notes">{handoff?.notes ?? ''}</textarea>
+      </label>
+      <div class="sm:col-span-2">
+        <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Save Handoff</button>
+      </div>
+    </form>
+  </section>
+</AppLayout>

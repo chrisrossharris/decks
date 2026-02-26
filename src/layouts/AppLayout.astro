@@ -1,0 +1,87 @@
+---
+import '../styles.css';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/astro/components';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} | DeckTakeoffPro</title>
+    <script is:inline>
+      (() => {
+        const saved = localStorage.getItem('theme');
+        const theme = saved === 'light' ? 'light' : 'dark';
+        document.documentElement.classList.toggle('theme-light', theme === 'light');
+      })();
+    </script>
+  </head>
+  <body>
+    <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 animate-floatIn">
+      <header class="app-header mb-6 rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <a href="/" class="block">
+            <p class="text-sm font-semibold uppercase tracking-widest text-pine">DeckTakeoffPro</p>
+            <h1 class="font-display text-2xl font-bold text-ink">{title}</h1>
+          </a>
+          <div class="flex flex-wrap items-center gap-2">
+            <a href="/projects" class="app-nav-primary rounded-md bg-pine px-3 py-2 text-sm font-semibold text-white hover:bg-pine/90">Projects</a>
+            <a href="/projects/schedule" class="app-nav-secondary rounded-md border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Schedule Board</a>
+            <a href="/projects/new" class="app-nav-outline rounded-md border border-pine px-3 py-2 text-sm font-semibold text-pine hover:bg-pine/5">New Project</a>
+            <a href="/resources" class="app-nav-secondary rounded-md border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Resources</a>
+            <SignedIn>
+              <a href="/account" class="app-nav-secondary rounded-md border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Account</a>
+              <div class="ml-1"><UserButton /></div>
+            </SignedIn>
+            <SignedOut>
+              <SignInButton mode="redirect" forceRedirectUrl="/projects">
+                <button class="app-nav-login rounded-md bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-ink/90">Log In</button>
+              </SignInButton>
+            </SignedOut>
+            <button
+              id="theme-toggle"
+              type="button"
+              class="theme-switch ml-1"
+              aria-label="Toggle dark mode"
+              title="Toggle dark mode"
+            >
+              <span class="theme-switch-track">
+                <span class="theme-switch-icon theme-switch-sun" aria-hidden="true">☼</span>
+                <span class="theme-switch-icon theme-switch-moon" aria-hidden="true">☾</span>
+                <span class="theme-switch-thumb" aria-hidden="true"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </header>
+      <slot />
+    </main>
+    <script is:inline>
+      (() => {
+        const button = document.getElementById('theme-toggle');
+        if (!button) return;
+
+        const apply = (theme) => {
+          const light = theme === 'light';
+          document.documentElement.classList.toggle('theme-light', light);
+          localStorage.setItem('theme', light ? 'light' : 'dark');
+          button.setAttribute('aria-pressed', light ? 'false' : 'true');
+        };
+
+        const initial = localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+        apply(initial);
+        button.addEventListener('click', () => {
+          const nowLight = document.documentElement.classList.contains('theme-light');
+          apply(nowLight ? 'dark' : 'light');
+        });
+      })();
+    </script>
+  </body>
+</html>

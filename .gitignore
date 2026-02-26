@@ -1,0 +1,8 @@
+node_modules
+dist
+.astro
+.netlify
+.env
+.env.local
+.env.*.local
+npm-debug.log*

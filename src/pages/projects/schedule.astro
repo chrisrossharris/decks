@@ -1,0 +1,36 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import { listProjects } from '@/lib/db/repo';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+
+const projects = await listProjects(userId);
+const stages = ['backlog', 'ready', 'scheduled', 'in_progress', 'done'] as const;
+const byStage = Object.fromEntries(stages.map((s) => [s, projects.filter((p: any) => (p.schedule_stage ?? 'backlog') === s)]));
+---
+
+<AppLayout title="Schedule Board">
+  <div class="mb-4 flex items-center justify-between">
+    <p class="text-sm text-slate-500">Cross-project handoff and scheduling view.</p>
+    <a href="/projects" class="app-nav-secondary rounded-md border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">Back to Projects</a>
+  </div>
+  <section class="grid gap-3 lg:grid-cols-5">
+    {stages.map((stage) => (
+      <article class="card p-3" key={stage}>
+        <h2 class="font-display text-base font-semibold capitalize">{stage.replaceAll('_', ' ')}</h2>
+        <div class="mt-3 space-y-2">
+          {(byStage as any)[stage].length === 0 ? (
+            <p class="text-xs text-slate-500">No projects</p>
+          ) : (byStage as any)[stage].map((project: any) => (
+            <a href={`/projects/${project.id}/schedule`} class="card-link block rounded-md p-2 text-sm">
+              <p class="font-semibold">{project.name}</p>
+              <p class="text-xs text-slate-600">{project.type} • status: {project.status}</p>
+              <p class="text-xs text-slate-600">client: {project.latest_client_decision ?? 'none'}</p>
+            </a>
+          ))}
+        </div>
+      </article>
+    ))}
+  </section>
+</AppLayout>

@@ -1,0 +1,141 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import { latestDesignInputs, latestEstimate, listProjectImages, recordShareViewByToken, resolveShareToken } from '@/lib/db/repo';
+import { parseJsonObject } from '@/lib/utils/json';
+import { money } from '@/lib/utils/format';
+
+const token = Astro.params.token as string;
+const share = await resolveShareToken(token);
+
+if (!share) {
+  return new Response('Review link is invalid or expired', { status: 404 });
+}
+
+const projectId = share.project_id as string;
+const estimate = share.kind === 'estimate' ? await latestEstimate(projectId) : null;
+const inputs = share.kind === 'blueprint' ? await latestDesignInputs(projectId) : null;
+const images = share.kind === 'blueprint' ? await listProjectImages(projectId) : [];
+const normalizedInputs = parseJsonObject(inputs?.inputs_json, {});
+const submitted = Astro.url.searchParams.get('submitted') === '1';
+const fmt = (value: unknown, suffix = '') => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 'N/A';
+  return `${n}${suffix}`;
+};
+if (share.kind === 'estimate') {
+  await recordShareViewByToken(token);
+}
+---
+
+<AppLayout title={`Client Review - ${share.project_name}`}>
+  <section class="card p-5">
+    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-pine">Client Review Link</p>
+    <h2 class="mt-1 font-display text-2xl font-bold">{share.project_name}</h2>
+    <p class="mt-1 text-sm text-slate-600">Review type: <span class="font-semibold">{share.kind}</span></p>
+  </section>
+
+  {share.kind === 'estimate' ? (
+    <section class="mt-4 card p-5 text-sm">
+      <h3 class="font-display text-xl font-semibold">Estimate Summary</h3>
+      {submitted && (
+        <div class="alert-success mt-3">
+          Response submitted. The contractor has been notified.
+        </div>
+      )}
+      {estimate ? (
+        <div class="mt-3 grid gap-2 sm:grid-cols-2">
+          <p>Materials: {money(estimate.subtotal_materials)}</p>
+          <p>Labor: {money(estimate.subtotal_labor)}</p>
+          <p>Overhead: {money(estimate.overhead_amount)}</p>
+          <p>Profit: {money(estimate.profit_amount)}</p>
+          <p>Tax: {money(estimate.tax_amount)}</p>
+          <p class="font-semibold">Total: {money(estimate.grand_total)}</p>
+        </div>
+      ) : (
+        <p class="mt-3">No estimate has been finalized for this project yet.</p>
+      )}
+
+      <form class="mt-4 grid gap-3 border-t border-slate-800 pt-4" method="post" action={`/api/review/${token}/respond`}>
+        <h4 class="font-semibold">Client Decision</h4>
+        <label>
+          <p class="label">Your Name</p>
+          <input class="input" name="reviewer_name" required />
+        </label>
+        <label>
+          <p class="label">Email (optional)</p>
+          <input class="input" type="email" name="reviewer_email" />
+        </label>
+        <label>
+          <p class="label">Decision</p>
+          <select class="input" name="decision" required>
+            <option value="approved">Approve</option>
+            <option value="changes_requested">Request Changes</option>
+          </select>
+        </label>
+        <label>
+          <p class="label">Approved Amount (optional)</p>
+          <input class="input" name="approved_amount" type="number" step="0.01" min="0" />
+        </label>
+        <label>
+          <p class="label">Notes</p>
+          <textarea class="input min-h-[90px]" name="message" placeholder="Comments, requested edits, or conditions"></textarea>
+        </label>
+        <button class="w-fit rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Submit Decision</button>
+      </form>
+    </section>
+  ) : (
+    <>
+      <section class="mt-4 card p-5">
+        <h3 class="font-display text-xl font-semibold">Blueprint Inputs</h3>
+        {inputs ? (
+          <div class="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
+            <div class="rounded-lg border border-slate-800 p-3">
+              <p class="font-semibold">Deck Geometry</p>
+              <p class="mt-1 text-slate-600">Mode: {String((normalizedInputs as any).shape_mode ?? 'rectangle')}</p>
+              <p class="text-slate-600">Length: {fmt((normalizedInputs as any).deck_length_ft, ' ft')}</p>
+              <p class="text-slate-600">Width: {fmt((normalizedInputs as any).deck_width_ft, ' ft')}</p>
+              <p class="text-slate-600">Height: {fmt((normalizedInputs as any).deck_height_ft, ' ft')}</p>
+            </div>
+            <div class="rounded-lg border border-slate-800 p-3">
+              <p class="font-semibold">Framing</p>
+              <p class="mt-1 text-slate-600">Joist spacing: {fmt((normalizedInputs as any).joist_spacing_in, ' in')}</p>
+              <p class="text-slate-600">Beam count: {fmt((normalizedInputs as any).beam_count)}</p>
+              <p class="text-slate-600">Post spacing: {fmt((normalizedInputs as any).post_spacing_ft, ' ft')}</p>
+              <p class="text-slate-600">Ledger: {(normalizedInputs as any).ledger ? 'Yes' : 'No'}</p>
+            </div>
+            <div class="rounded-lg border border-slate-800 p-3">
+              <p class="font-semibold">Decking + Rail</p>
+              <p class="mt-1 text-slate-600">Material: {String((normalizedInputs as any).decking_material ?? 'N/A')}</p>
+              <p class="text-slate-600">Board width: {fmt((normalizedInputs as any).decking_board_width_in, ' in')}</p>
+              <p class="text-slate-600">Railing type: {String((normalizedInputs as any).railing_type ?? 'N/A')}</p>
+              <p class="text-slate-600">Stairs: {fmt((normalizedInputs as any).stair_count)}</p>
+            </div>
+            <div class="rounded-lg border border-slate-800 p-3">
+              <p class="font-semibold">Cover</p>
+              <p class="mt-1 text-slate-600">Covered: {(normalizedInputs as any).is_covered ? 'Yes' : 'No'}</p>
+              <p class="text-slate-600">Roof type: {String((normalizedInputs as any).roof_type ?? 'N/A')}</p>
+              <p class="text-slate-600">Roof length: {fmt((normalizedInputs as any).roof_length_ft, ' ft')}</p>
+              <p class="text-slate-600">Roof width: {fmt((normalizedInputs as any).roof_width_ft, ' ft')}</p>
+            </div>
+          </div>
+        ) : (
+          <p class="mt-3 text-sm text-slate-600">No design input version found.</p>
+        )}
+      </section>
+
+      <section class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {images.length === 0 ? (
+          <div class="card p-4 text-sm text-slate-600">No project images uploaded.</div>
+        ) : images.map((image: any) => (
+          <article class="card overflow-hidden">
+            <img src={`/review/${token}/image/${image.id}`} alt={image.caption || image.file_name} class="h-48 w-full object-cover" />
+            <div class="p-3">
+              <p class="text-sm font-semibold">{image.file_name}</p>
+              <p class="text-xs text-slate-500">{image.caption || 'No caption'}</p>
+            </div>
+          </article>
+        ))}
+      </section>
+    </>
+  )}
+</AppLayout>

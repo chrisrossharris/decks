@@ -1,0 +1,116 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import DesignInputsForm from '@/components/DesignInputsForm';
+import ProjectSubnav from '@/components/ProjectSubnav.astro';
+import { getProject, latestDesignInputs } from '@/lib/db/repo';
+import { parseJsonObject } from '@/lib/utils/json';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+
+const projectId = Astro.params.id as string;
+const project = await getProject(userId, projectId);
+if (!project) throw new Error('Project not found');
+
+const latest = await latestDesignInputs(projectId);
+const baseDefaults = (project.type === 'fence'
+  ? {
+      design_mode: 'fence',
+      deck_length_ft: 0,
+      deck_width_ft: 0,
+      deck_height_ft: 0,
+      decking_material: 'wood',
+      decking_board_width_in: 5.5,
+      joist_spacing_in: 16,
+      ledger: false,
+      beam_count: 1,
+      post_size: '6x6',
+      post_spacing_ft: 6,
+      stair_count: 0,
+      stair_width_ft: 4,
+      railing_type: 'wood',
+      railing_sides: 'all',
+      custom_railing_lf: null,
+      is_covered: false,
+      shape_mode: 'rectangle',
+      deck_polygon_points: [],
+      deck_area_override_sqft: null,
+      deck_perimeter_override_lf: null,
+      fence_length_ft: 120,
+      fence_height_ft: 6,
+      fence_material: 'wood',
+      fence_style: 'privacy',
+      fence_post_spacing_ft: 8,
+      fence_rail_count: 2,
+      fence_picket_width_in: 5.5,
+      fence_picket_gap_in: 0.5,
+      fence_gate_count: 1,
+      fence_gate_width_ft: 4
+    }
+  : {
+      design_mode: 'deck',
+      deck_length_ft: 20,
+      deck_width_ft: 14,
+      deck_height_ft: 6,
+      decking_material: 'composite',
+      decking_board_width_in: 5.5,
+      joist_spacing_in: 16,
+      ledger: true,
+      beam_count: 1,
+      post_size: '6x6',
+      post_spacing_ft: 6,
+      stair_count: 1,
+      stair_width_ft: 4,
+      railing_type: 'wood',
+      railing_sides: 'all',
+      custom_railing_lf: null,
+      is_covered: project.type === 'covered_deck',
+      roof_type: 'shed',
+      roof_length_ft: 20,
+      roof_width_ft: 14,
+      rafter_spacing_in: 16,
+      roofing_material: 'shingle',
+      ceiling_finish: 'none',
+      cover_post_count: 4,
+      cover_beam_size: 'LVL 1.75x11.875',
+      shape_mode: 'rectangle',
+      deck_polygon_points: [],
+      deck_area_override_sqft: null,
+      deck_perimeter_override_lf: null,
+      fence_length_ft: 0,
+      fence_height_ft: 0,
+      fence_material: 'wood',
+      fence_style: 'privacy',
+      fence_post_spacing_ft: 8,
+      fence_rail_count: 2,
+      fence_picket_width_in: 5.5,
+      fence_picket_gap_in: 0.5,
+      fence_gate_count: 0,
+      fence_gate_width_ft: 4
+    });
+
+const latestInputs = parseJsonObject(latest?.inputs_json, {});
+const defaults = {
+  ...baseDefaults,
+  ...latestInputs,
+  joist_spacing_in:
+    (latestInputs.design_mode ?? baseDefaults.design_mode) === 'deck' &&
+    (latestInputs.decking_material ?? baseDefaults.decking_material) === 'composite'
+      ? 12
+      : (latestInputs.joist_spacing_in ?? baseDefaults.joist_spacing_in),
+  shape_mode:
+    latestInputs.shape_mode ??
+    ((latestInputs.deck_polygon_points?.length ?? 0) > 0 ? 'polygon' : 'rectangle')
+};
+---
+
+<AppLayout title={`Design Inputs - ${project.name}`}>
+  <ProjectSubnav projectId={projectId} />
+  <DesignInputsForm
+    client:load
+    key={JSON.stringify(defaults)}
+    projectId={projectId}
+    defaults={defaults}
+    projectType={project.type}
+  />
+</AppLayout>

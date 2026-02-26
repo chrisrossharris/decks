@@ -1,0 +1,25 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+---
+
+<AppLayout title="New Project">
+  <form class="card grid gap-4 p-4" method="post" action="/api/projects/create">
+    <label>
+      <p class="label">Project Name</p>
+      <input class="input" name="name" required />
+    </label>
+    <label>
+      <p class="label">Type</p>
+      <select class="input" name="type">
+        <option value="deck">Deck</option>
+        <option value="covered_deck">Covered Deck</option>
+        <option value="fence">Fence</option>
+      </select>
+    </label>
+    <label>
+      <p class="label">Address</p>
+      <input class="input" name="address" />
+    </label>
+    <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Create Project</button>
+  </form>
+</AppLayout>

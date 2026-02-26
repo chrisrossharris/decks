@@ -1,0 +1,48 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+---
+
+<AppLayout title="Resources">
+  <section class="grid gap-4 lg:grid-cols-3">
+    <article class="card p-5 lg:col-span-2">
+      <p class="text-xs font-semibold uppercase tracking-[0.2em] text-pine">Quick Start Tutorial</p>
+      <h2 class="mt-1 font-display text-2xl font-bold">From Zero to Proposal in 10 Minutes</h2>
+      <ol class="mt-4 space-y-3 text-sm text-slate-700">
+        <li><span class="font-semibold">1. Create a project:</span> Go to <a href="/projects/new" class="text-pine underline">New Project</a> and set name/type/address.</li>
+        <li><span class="font-semibold">2. Enter design inputs:</span> Fill deck dimensions, stairs, railing, and optional covered roof fields.</li>
+        <li><span class="font-semibold">3. Generate takeoff:</span> Click “Generate Takeoff (new version)” to create a versioned material list.</li>
+        <li><span class="font-semibold">4. Edit takeoff lines:</span> Adjust qty, waste, unit cost, lead time, notes, and vendor inline.</li>
+        <li><span class="font-semibold">5. Generate labor plan:</span> Pick a template and calculate labor hours/cost.</li>
+        <li><span class="font-semibold">6. Calculate estimate:</span> Set overhead/profit/tax and review grand total transparency.</li>
+        <li><span class="font-semibold">7. Export PDFs:</span> Create Materials, Internal Estimate, and Client Proposal PDFs.</li>
+      </ol>
+    </article>
+
+    <article class="card p-5">
+      <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Reference</p>
+      <ul class="mt-3 space-y-2 text-sm text-slate-700">
+        <li><a class="text-pine underline" href="/projects">Projects</a> - list + open active jobs</li>
+        <li><a class="text-pine underline" href="/projects/new">Project Setup</a> - create new estimates</li>
+        <li><a class="text-pine underline" href="/account">Account</a> - manage login/profile</li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="mt-5 card p-5">
+    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Assumptions + Limits</p>
+    <ul class="mt-3 space-y-2 text-sm text-slate-700">
+      <li>Takeoff formulas are transparent and editable but are not structural engineering calculations.</li>
+      <li>Pricing flagged as allowance should be replaced with vendor quotes before final proposal.</li>
+      <li>Each “Generate Takeoff” creates a new version; prior versions are preserved for comparison.</li>
+    </ul>
+  </section>
+
+  <section class="mt-5 card p-5">
+    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Troubleshooting</p>
+    <ul class="mt-3 space-y-2 text-sm text-slate-700">
+      <li><span class="font-semibold">No projects visible:</span> Seed data may belong to `SEED_USER_ID`, not your Clerk account.</li>
+      <li><span class="font-semibold">Blank takeoff:</span> Save design inputs first, then regenerate takeoff.</li>
+      <li><span class="font-semibold">PDF export fails:</span> Confirm `NETLIFY_BLOBS_SITE_ID` and `NETLIFY_BLOBS_TOKEN` are set.</li>
+    </ul>
+  </section>
+</AppLayout>

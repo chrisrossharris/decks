@@ -1,0 +1,188 @@
+---
+import { parseJsonObject } from '@/lib/utils/json';
+import { money } from '@/lib/utils/format';
+
+interface Props {
+  inputs?: any;
+  takeoff?: any;
+  labor?: any;
+  estimate?: any;
+}
+
+const { inputs = {}, takeoff, labor, estimate } = Astro.props as Props;
+
+const lengthFt = Number(inputs.deck_length_ft ?? 0);
+const widthFt = Number(inputs.deck_width_ft ?? 0);
+const joistSpacingInInput = Number(inputs.joist_spacing_in ?? 16);
+const joistSpacingIn = String(inputs.decking_material ?? '') === 'composite'
+  ? Math.min(joistSpacingInInput, 12)
+  : joistSpacingInInput;
+const joistCount = Math.max(2, Math.ceil((Math.max(lengthFt, 1) * 12) / Math.max(joistSpacingIn, 1)));
+const drawJoists = Math.max(2, Math.min(24, joistCount));
+const joistPitchPx = drawJoists > 1 ? 260 / (drawJoists - 1) : 0;
+const beamCount = Math.max(1, Number(inputs.beam_count ?? 1));
+const postSpacingFt = Math.max(1, Number(inputs.post_spacing_ft ?? 6));
+
+const items = Array.isArray(takeoff?.items) ? takeoff.items : [];
+const postItem = items.find((i: any) => i.category === 'Footings' && String(i.name ?? '').includes('PT structural post'));
+const bagItem = items.find((i: any) => i.category === 'Footings' && i.name === 'Concrete bag');
+const railingItem = items.find((i: any) => i.category === 'Railing' && String(i.name ?? '').startsWith('Railing -'));
+
+const structuralPosts = Number(postItem?.qty ?? 0);
+const concreteBags = Number(bagItem?.qty ?? 0);
+const railingLf = Number(railingItem?.qty ?? 0);
+const parsedTotals = parseJsonObject(takeoff?.totals_json, {} as Record<string, unknown>);
+const deckSqft = Number(
+  (parsedTotals as any).deck_sqft ??
+  takeoff?.totals?.deck_sqft ??
+  (Number(inputs.deck_length_ft ?? 0) * Number(inputs.deck_width_ft ?? 0))
+);
+const laborTotal = Number(labor?.total_labor_cost ?? 0);
+const totalPrice = Number(estimate?.grand_total ?? 0);
+const assumptions = parseJsonObject(takeoff?.assumptions_json, {} as Record<string, unknown>);
+const constants = parseJsonObject((assumptions as any).constants, {} as Record<string, unknown>);
+const railingPostSpacingFt = Math.max(1, Number((constants as any).default_railing_post_spacing_ft ?? 6));
+const beamSupportPostsRaw = Number((constants as any).beam_support_post_count ?? 0);
+const beamSupportPosts = Number.isFinite(beamSupportPostsRaw) && beamSupportPostsRaw > 0
+  ? beamSupportPostsRaw
+  : Math.max(4, (Math.ceil(Math.max(lengthFt, 1) / postSpacingFt) + 1) * beamCount);
+const perimeterSupportPostsRaw = Number((constants as any).perimeter_railing_support_post_count ?? 0);
+const railingSupportRunRaw = Number((constants as any).railing_support_run_lf ?? 0);
+const stairOpeningLf = Math.max(0, Number(inputs.stair_count ?? 0) * Number(inputs.stair_width_ft ?? 0));
+const openRunFallback = Math.max(
+  0,
+  (inputs.ledger ? (Math.max(lengthFt, 0) + 2 * Math.max(widthFt, 0)) : (2 * (Math.max(lengthFt, 0) + Math.max(widthFt, 0))))
+    - stairOpeningLf
+);
+const perimeterSupportPosts = Number.isFinite(perimeterSupportPostsRaw) && perimeterSupportPostsRaw > 0
+  ? perimeterSupportPostsRaw
+  : Math.max(0, Math.ceil(openRunFallback / railingPostSpacingFt) + 1);
+const railingSupportRunLf = Number.isFinite(railingSupportRunRaw) && railingSupportRunRaw > 0
+  ? railingSupportRunRaw
+  : openRunFallback;
+const drawBeamPostsPerBeam = Math.max(2, Math.ceil(beamSupportPosts / beamCount));
+
+const x0 = 24;
+const x1 = 284;
+const y0 = 20;
+const y1 = 140;
+const perimeterFt = Math.max(1, Math.max(lengthFt, 1) + 2 * Math.max(widthFt, 1));
+const corners = [
+  { x: x0, y: y1 }, // bottom-left
+  { x: x1, y: y1 }, // bottom-right
+  { x: x1, y: y0 }, // top-right (ledger corner)
+  { x: x0, y: y0 } // top-left (ledger corner)
+];
+const perimeterPoints = (() => {
+  const target = Math.max(0, Math.min(40, perimeterSupportPosts));
+  if (target <= 0) return [] as Array<{ x: number; y: number }>;
+  if (target <= 4) return corners.slice(0, target);
+
+  const remaining = target - 4;
+  const sideDefs = [
+    // No perimeter posts along the ledger edge (house side).
+    { len: Math.max(lengthFt, 1), start: corners[0], end: corners[1] }, // front edge
+    { len: Math.max(widthFt, 1), start: corners[1], end: corners[2] }, // right edge
+    { len: Math.max(widthFt, 1), start: corners[3], end: corners[0] } // left edge
+  ];
+
+  const quotas = sideDefs.map((s) => (remaining * s.len) / perimeterFt);
+  const extras = quotas.map((q) => Math.floor(q));
+  let allocated = extras.reduce((sum, n) => sum + n, 0);
+  const remainders = quotas.map((q, i) => ({ i, rem: q - Math.floor(q) })).sort((a, b) => b.rem - a.rem);
+  for (let r = 0; allocated < remaining && r < remainders.length; r += 1) {
+    extras[remainders[r].i] += 1;
+    allocated += 1;
+  }
+
+  const points: Array<{ x: number; y: number }> = [...corners];
+  for (let sideIndex = 0; sideIndex < sideDefs.length; sideIndex += 1) {
+    const side = sideDefs[sideIndex];
+    const count = extras[sideIndex];
+    for (let i = 1; i <= count; i += 1) {
+      const t = i / (count + 1);
+      points.push({
+        x: side.start.x + (side.end.x - side.start.x) * t,
+        y: side.start.y + (side.end.y - side.start.y) * t
+      });
+    }
+  }
+
+  return points.slice(0, Math.min(target, 40));
+})();
+---
+
+<section class="mb-4 card p-4">
+  <h2 class="font-display text-lg font-semibold">Project Summary</h2>
+  <p class="mt-1 text-sm text-slate-500">Quick snapshot after takeoff, labor, and estimate.</p>
+
+  <div class="mt-3 grid gap-3 sm:grid-cols-3">
+    <div class="surface-muted rounded-md p-3">
+      <p class="label">Deck Area</p>
+      <p class="text-lg font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} sqft</p>
+    </div>
+    <div class="surface-muted rounded-md p-3">
+      <p class="label">Structural Posts / Concrete</p>
+      <p class="text-lg font-semibold">{structuralPosts} posts • {concreteBags} bags</p>
+    </div>
+    <div class="surface-muted rounded-md p-3">
+      <p class="label">Estimate Total</p>
+      <p class="text-lg font-semibold">{money(totalPrice)}</p>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+    <div class="surface-muted rounded-md p-3">
+      <p class="mb-2 text-sm font-semibold">Mini Diagram</p>
+      <svg viewBox="0 0 320 200" class="w-full">
+        <rect x="24" y="20" width="260" height="120" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.7"></rect>
+        <text x="24" y="12" font-size="10" fill="#0f766e">House / ledger side</text>
+        {Array.from({ length: drawJoists }).map((_, i) => (
+          <line x1={24 + (260 * i) / (drawJoists - 1)} y1="20" x2={24 + (260 * i) / (drawJoists - 1)} y2="140" stroke="#94a3b8" stroke-width="0.8"></line>
+        ))}
+        {drawJoists > 1 && (
+          <>
+            <line x1="24" y1="150" x2={24 + joistPitchPx} y2="150" stroke="#334155" stroke-width="1" />
+            <line x1="24" y1="147" x2="24" y2="153" stroke="#334155" stroke-width="1" />
+            <line x1={24 + joistPitchPx} y1="147" x2={24 + joistPitchPx} y2="153" stroke="#334155" stroke-width="1" />
+            <text x={24 + joistPitchPx / 2 - 14} y="162" font-size="8" fill="#334155">{joistSpacingIn}" O.C.</text>
+          </>
+        )}
+        {Array.from({ length: beamCount }).map((_, i) => (
+          <line x1="24" y1={130 - (100 * (i + 1)) / (beamCount + 1)} x2="284" y2={130 - (100 * (i + 1)) / (beamCount + 1)} stroke="#b45309" stroke-width="2"></line>
+        ))}
+        {Array.from({ length: beamCount }).map((_, b) => {
+          const py = 130 - (100 * (b + 1)) / (beamCount + 1);
+          return Array.from({ length: drawBeamPostsPerBeam }).map((__, p) => {
+            const px = 24 + (260 * p) / Math.max(drawBeamPostsPerBeam - 1, 1);
+            return <circle cx={px} cy={py} r="2.6" fill="#1d4ed8"></circle>;
+          });
+        })}
+        {perimeterPoints.map((p) => (
+          <circle cx={p.x} cy={p.y} r="2.2" stroke="#1d4ed8" stroke-width="1" fill="#ffffff"></circle>
+        ))}
+        <line x1="24" y1="20" x2="284" y2="20" stroke="#0f766e" stroke-width="3"></line>
+        <text x="24" y="178" font-size="10" fill="currentColor">Length (along house): {Number.isFinite(lengthFt) ? lengthFt.toFixed(1) : '0.0'} ft</text>
+        <text x="24" y="190" font-size="10" fill="currentColor">Depth (out from house): {Number.isFinite(widthFt) ? widthFt.toFixed(1) : '0.0'} ft</text>
+      </svg>
+      <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+        <span class="inline-flex items-center gap-1"><span class="h-0.5 w-4 bg-slate-400"></span>Joist</span>
+        <span class="inline-flex items-center gap-1"><span class="h-0.5 w-4 bg-amber-700"></span>Beam</span>
+        <span class="inline-flex items-center gap-1"><span class="h-0.5 w-4 bg-teal-700"></span>Ledger</span>
+        <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-blue-700"></span>Beam support post</span>
+        <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-full border border-blue-700 bg-white"></span>Perimeter railing support post</span>
+      </div>
+    </div>
+    <div class="surface-muted rounded-md p-3 text-sm">
+      <p class="font-semibold">Key Metrics</p>
+      <p class="mt-2">Joist spacing: {joistSpacingIn}" O.C.</p>
+      <p>Joists: {joistCount}</p>
+      <p>Beam lines: {beamCount}</p>
+      <p>Beam support posts: {beamSupportPosts}</p>
+      <p>Perimeter railing support posts: {perimeterSupportPosts} (open run {railingSupportRunLf.toFixed(0)} lf @ max {railingPostSpacingFt.toFixed(0)}ft, no ledger-edge posts)</p>
+      <p>Railing: {Number.isFinite(railingLf) ? railingLf.toFixed(0) : '0'} lf</p>
+      <p>Labor total: {money(laborTotal)}</p>
+      <p class="mt-3 text-xs text-slate-500">Diagram is conceptual for quick review, not structural engineering.</p>
+    </div>
+  </div>
+</section>

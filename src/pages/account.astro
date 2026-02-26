@@ -1,0 +1,54 @@
+---
+import AppLayout from '@/layouts/AppLayout.astro';
+import { UserProfile } from '@clerk/astro/components';
+import { listNotificationJobsForUser } from '@/lib/db/repo';
+
+const userId = Astro.locals.auth().userId;
+if (!userId) return Astro.redirect('/login');
+const queueDone = Astro.url.searchParams.get('queue') === 'done';
+const processed = Astro.url.searchParams.get('processed');
+const sent = Astro.url.searchParams.get('sent');
+const retried = Astro.url.searchParams.get('retried');
+const failed = Astro.url.searchParams.get('failed');
+const jobs = await listNotificationJobsForUser(userId, 15);
+---
+
+<AppLayout title="Account">
+  {queueDone && (
+    <div class="alert-success mb-3">
+      Queue processed: {processed ?? '0'} | sent: {sent ?? '0'} | retried: {retried ?? '0'} | failed: {failed ?? '0'}
+    </div>
+  )}
+  <div class="card mb-4 p-4">
+    <h2 class="font-display text-lg font-semibold">Notifications Admin</h2>
+    <p class="mt-1 text-sm text-slate-600">Run queued email retries immediately.</p>
+    <form class="mt-3" method="post" action="/api/account/notifications/process">
+      <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Process Email Queue Now</button>
+    </form>
+    <div class="mt-4 overflow-x-auto rounded-md border border-slate-800">
+      <table class="min-w-full text-xs">
+        <thead class="bg-slate-900">
+          <tr>
+            {['Status', 'To', 'Attempts', 'Next Attempt', 'Error'].map((h) => <th class="px-2 py-2 text-left font-semibold" key={h}>{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.length === 0 ? (
+            <tr><td class="px-2 py-2 text-slate-500" colspan="5">No queued jobs.</td></tr>
+          ) : jobs.map((job: any) => (
+            <tr class="border-t border-slate-800" key={job.id}>
+              <td class="px-2 py-2">{job.status}</td>
+              <td class="px-2 py-2">{job.to_email}</td>
+              <td class="px-2 py-2">{job.attempt_count}</td>
+              <td class="px-2 py-2">{job.next_attempt_at ? new Date(job.next_attempt_at).toLocaleString() : '-'}</td>
+              <td class="px-2 py-2">{job.last_error ?? '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card p-4">
+    <UserProfile routing="path" path="/account" />
+  </div>
+</AppLayout>
