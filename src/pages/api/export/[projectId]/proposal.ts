@@ -1,19 +1,22 @@
 import type { APIRoute } from 'astro';
-import { createDocument, getProject, latestEstimate, latestLaborPlan, latestTakeoff } from '@/lib/db/repo';
+import { createDocument, createProjectActivity, getProject, latestDesignInputs, latestEstimate, latestLaborPlan, latestTakeoff } from '@/lib/db/repo';
 import { buildPdf, storePdf } from '@/lib/pdf/exporter';
 import { estimateTotals } from '@/lib/engines/estimate';
-import { requireUserId } from '@/lib/utils/auth';
+import { requireProjectEditAccess, requireUserId } from '@/lib/utils/auth';
 import { parseJsonObject } from '@/lib/utils/json';
 
 export const POST: APIRoute = async (context) => {
   const userId = requireUserId(context);
   const projectId = context.params.projectId as string;
+  const editGuard = await requireProjectEditAccess(context, userId, projectId);
+  if (editGuard) return editGuard;
 
   try {
     const project = await getProject(userId, projectId);
     const estimate = await latestEstimate(projectId);
     const labor = await latestLaborPlan(projectId);
     const takeoff = await latestTakeoff(projectId);
+    const designInputs = await latestDesignInputs(projectId);
 
     if (!project) return context.redirect(`/projects/${projectId}/export?error=missing_project`);
 
@@ -44,10 +47,18 @@ export const POST: APIRoute = async (context) => {
     const proposalEstimate = estimate ?? fallbackEstimate;
     if (!proposalEstimate) return context.redirect(`/projects/${projectId}/export?error=missing_proposal_records`);
 
-    const pdf = await buildPdf('proposal', { project, estimate: proposalEstimate });
+    const normalizedInputs = parseJsonObject(designInputs?.inputs_json, {});
+    const pdf = await buildPdf('proposal', { project, estimate: proposalEstimate, inputs: normalizedInputs });
     const storagePath = `projects/${projectId}/proposal-${Date.now()}.pdf`;
     await storePdf(storagePath, pdf);
-    await createDocument(projectId, 'client_proposal_pdf', storagePath);
+    const doc = await createDocument(projectId, 'client_proposal_pdf', storagePath);
+    await createProjectActivity({
+      projectId,
+      actor: project.user_id === userId ? 'owner' : 'collaborator',
+      actorRef: userId,
+      eventKey: 'client_proposal_pdf_generated',
+      eventJson: { document_id: doc.id }
+    });
     return context.redirect(`/projects/${projectId}/export?ok=proposal`);
   } catch {
     return context.redirect(`/projects/${projectId}/export?error=proposal_export_failed`);

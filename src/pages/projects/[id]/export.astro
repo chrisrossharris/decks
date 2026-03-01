@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.astro';
 import ProjectSubnav from '@/components/ProjectSubnav.astro';
 import ProjectSummaryCard from '@/components/ProjectSummaryCard.astro';
-import { getProject, latestDesignInputs, latestEstimate, latestLaborPlan, latestTakeoff, listProjectDocuments } from '@/lib/db/repo';
+import { getProject, latestDesignInputs, latestEstimate, latestLaborPlan, latestTakeoff, listProjectActivity, listProjectDocuments } from '@/lib/db/repo';
 import { parseJsonObject } from '@/lib/utils/json';
 
 const userId = Astro.locals.auth().userId;
@@ -23,6 +23,19 @@ const takeoff = await latestTakeoff(projectId);
 const labor = await latestLaborPlan(projectId);
 const estimate = await latestEstimate(projectId);
 const inputs = parseJsonObject(inputsRow?.inputs_json, {});
+const isFence = project.type === 'fence' || String((inputs as any).design_mode ?? 'deck') === 'fence';
+const exportActivity = (await listProjectActivity(projectId))
+  .filter((event: any) =>
+    [
+      'materials_pdf_generated',
+      'internal_estimate_pdf_generated',
+      'client_proposal_pdf_generated',
+      'proposal_email_sent',
+      'proposal_email_not_sent',
+      'proposal_email_queued'
+    ].includes(event.event_key)
+  )
+  .slice(0, 8);
 ---
 
 <AppLayout title={`Export PDFs - ${project.name}`}>
@@ -41,7 +54,9 @@ const inputs = parseJsonObject(inputsRow?.inputs_json, {});
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 class="font-display text-lg font-semibold">What to do next</h2>
-        <p class="mt-1 text-sm text-slate-400">Finish exports, share proposal, then track client decision and scheduling.</p>
+        <p class="mt-1 text-sm text-slate-400">
+          Finish exports, share {isFence ? 'fence proposal' : 'proposal'}, then track client decision and scheduling.
+        </p>
       </div>
       <a
         href={readyToShare ? `/projects/${projectId}/share` : '#'}
@@ -51,7 +66,7 @@ const inputs = parseJsonObject(inputsRow?.inputs_json, {});
         ]}
         aria-disabled={!readyToShare}
       >
-        {readyToShare ? 'Next: Share With Client' : 'Generate Proposal PDF First'}
+        {readyToShare ? `Next: Share ${isFence ? 'Fence' : ''} With Client`.trim() : 'Generate Proposal PDF First'}
       </a>
     </div>
     <div class="mt-3 grid gap-2 text-sm sm:grid-cols-3">
@@ -99,6 +114,27 @@ const inputs = parseJsonObject(inputsRow?.inputs_json, {});
             <span class="font-semibold">{doc.kind}</span>
             <span class="ml-2 text-slate-500">{new Date(doc.created_at).toLocaleString()}</span>
           </a>
+        ))}
+      </div>
+    )}
+  </section>
+
+  <section class="mt-4 card p-4">
+    <h2 class="font-display text-lg font-semibold">Export Activity</h2>
+    {exportActivity.length === 0 ? (
+      <p class="mt-2 text-sm text-slate-600">No export or share activity yet.</p>
+    ) : (
+      <div class="mt-3 space-y-2">
+        {exportActivity.map((event: any) => (
+          <div class="rounded-md border border-slate-700 px-3 py-2 text-sm">
+            <div class="flex items-center justify-between gap-2">
+              <p class="font-semibold">{event.event_key.replaceAll('_', ' ')}</p>
+              <span class={event.event_key.includes('not_sent') ? 'status-pending' : 'status-done'}>
+                {event.event_key.includes('not_sent') ? 'Attention' : 'Recorded'}
+              </span>
+            </div>
+            <p class="mt-1 text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</p>
+          </div>
         ))}
       </div>
     )}

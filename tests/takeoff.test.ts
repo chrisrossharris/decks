@@ -56,6 +56,34 @@ describe('takeoff engine', () => {
     expect(roofing?.qty).toBe(220);
   });
 
+  it('includes covered package roof metadata and fan plate allowance', () => {
+    const result = generateTakeoff({
+      ...baseInputs,
+      is_covered: true,
+      roof_length_ft: 20,
+      roof_width_ft: 14,
+      rafter_spacing_in: 16,
+      roofing_material: 'metal',
+      roofing_product_type: 'standing seam',
+      roofing_color: 'charcoal',
+      roof_pitch: '6:12',
+      roof_type: 'gable',
+      ceiling_finish: 'beadboard',
+      ceiling_fan_plate_count: 2,
+      cover_post_count: 4,
+      cover_beam_size: 'LVL'
+    });
+    const roofing = result.items.find((i) => i.name === 'Roofing - metal');
+    const ceiling = result.items.find((i) => i.name === 'Ceiling beadboard');
+    const fanPlates = result.items.find((i) => i.name === 'Fan-rated ceiling plate');
+    expect(roofing?.notes).toContain('gable');
+    expect(roofing?.notes).toContain('pitch 6:12');
+    expect(roofing?.notes).toContain('type standing seam');
+    expect(roofing?.notes).toContain('color charcoal');
+    expect(ceiling?.qty).toBe(280);
+    expect(fanPlates?.qty).toBe(2);
+  });
+
   it('rounds fasteners up at one box per 100 sqft', () => {
     const result = generateTakeoff({ ...baseInputs, deck_length_ft: 13, deck_width_ft: 11 });
     const fasteners = result.items.find((i) => i.name === 'Exterior screws box');

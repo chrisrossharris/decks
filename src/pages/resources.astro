@@ -9,7 +9,7 @@ import AppLayout from '@/layouts/AppLayout.astro';
       <h2 class="mt-1 font-display text-2xl font-bold">From Zero to Proposal in 10 Minutes</h2>
       <ol class="mt-4 space-y-3 text-sm text-slate-700">
         <li><span class="font-semibold">1. Create a project:</span> Go to <a href="/projects/new" class="text-pine underline">New Project</a> and set name/type/address.</li>
-        <li><span class="font-semibold">2. Enter design inputs:</span> Fill deck dimensions, stairs, railing, and optional covered roof fields.</li>
+        <li><span class="font-semibold">2. Enter design inputs:</span> For decks, fill dimensions/stairs/railing. For fences, fill run length/height/style/post spacing/gates.</li>
         <li><span class="font-semibold">3. Generate takeoff:</span> Click “Generate Takeoff (new version)” to create a versioned material list.</li>
         <li><span class="font-semibold">4. Edit takeoff lines:</span> Adjust qty, waste, unit cost, lead time, notes, and vendor inline.</li>
         <li><span class="font-semibold">5. Generate labor plan:</span> Pick a template and calculate labor hours/cost.</li>
@@ -34,6 +34,7 @@ import AppLayout from '@/layouts/AppLayout.astro';
       <li>Takeoff formulas are transparent and editable but are not structural engineering calculations.</li>
       <li>Pricing flagged as allowance should be replaced with vendor quotes before final proposal.</li>
       <li>Each “Generate Takeoff” creates a new version; prior versions are preserved for comparison.</li>
+      <li>Fence assumptions can be tuned from Takeoff: post spacing default, rail count default, bags/post, and hardware interval.</li>
     </ul>
   </section>
 

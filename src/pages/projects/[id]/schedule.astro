@@ -13,10 +13,45 @@ if (!project) throw new Error('Project not found');
 const handoff = await getScheduleHandoff(projectId);
 const reviews = await listProposalReviews(projectId);
 const approved = reviews.find((r: any) => r.decision === 'approved');
+const stage = handoff?.stage ?? 'backlog';
 ---
 
 <AppLayout title={`Schedule Handoff - ${project.name}`}>
   <ProjectSubnav projectId={projectId} />
+  <section class="mb-4 card p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="font-display text-lg font-semibold">What to do next</h2>
+        <p class="mt-1 text-sm text-slate-600">Finalize schedule details, assign a lead, and move the project to active production.</p>
+      </div>
+      <a
+        href="/projects/schedule"
+        class:list={[
+          'rounded-md px-4 py-2 text-sm font-semibold',
+          stage === 'scheduled' || stage === 'in_progress' || stage === 'done' ? 'bg-pine text-white' : 'btn-disabled'
+        ]}
+        aria-disabled={!(stage === 'scheduled' || stage === 'in_progress' || stage === 'done')}
+      >
+        {stage === 'scheduled' || stage === 'in_progress' || stage === 'done' ? 'View Schedule Board' : 'Set Stage To Scheduled First'}
+      </a>
+    </div>
+    <div class="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={approved ? 'status-done' : 'status-pending'}>{approved ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Client Approval</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={handoff?.assigned_lead ? 'status-done' : 'status-pending'}>{handoff?.assigned_lead ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Assigned Lead</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={(stage === 'scheduled' || stage === 'in_progress' || stage === 'done') ? 'status-done' : 'status-pending'}>
+          {(stage === 'scheduled' || stage === 'in_progress' || stage === 'done') ? 'Done' : 'Pending'}
+        </span>
+        <p class="font-semibold">Scheduled Stage</p>
+      </div>
+    </div>
+  </section>
   <section class="card p-4">
     <h2 class="font-display text-lg font-semibold">Scheduling Handoff</h2>
     <p class="mt-1 text-sm text-slate-600">Capture scheduling readiness after client decision and move through simple stage tracking.</p>

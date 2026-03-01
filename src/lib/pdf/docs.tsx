@@ -107,8 +107,113 @@ function computePerimeterPointsRect(
   return points.slice(0, target);
 }
 
+function polylinePath(points: Array<{ x: number; y: number }>) {
+  if (points.length < 2) return '';
+  return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+}
+
 function FramingSchematic({ inputs }: { inputs?: any }) {
   if (!inputs) return null;
+  if (String(inputs.design_mode ?? 'deck') === 'fence') {
+    const fenceLayout = String(inputs.fence_layout ?? 'straight');
+    const sideA = Math.max(0, Number(inputs.fence_side_a_ft ?? 0));
+    const sideB = Math.max(0, Number(inputs.fence_side_b_ft ?? 0));
+    const sideC = Math.max(0, Number(inputs.fence_side_c_ft ?? 0));
+    const fenceHeight = Math.max(0, Number(inputs.fence_height_ft ?? 0));
+    const fenceLengthFallback = Math.max(0, Number(inputs.fence_length_ft ?? 0));
+    const segments = (() => {
+      if (fenceLayout === 'corner' && sideA > 0 && sideB > 0) return [sideA, sideB];
+      if (fenceLayout === 'u_shape' && sideA > 0 && sideB > 0 && sideC > 0) return [sideA, sideB, sideC];
+      return [fenceLengthFallback];
+    })();
+    const fenceLength = segments.reduce((sum, value) => sum + Math.max(0, value), 0) || fenceLengthFallback;
+    const postSpacing = Math.max(1, Number(inputs.fence_post_spacing_ft ?? 8));
+    const postCount = Math.max(2, Math.ceil(fenceLength / postSpacing) + 1);
+    const gateCount = Math.max(0, Number(inputs.fence_gate_count ?? 0));
+    const railCount = Math.max(1, Number(inputs.fence_rail_count ?? 2));
+    const plot = (() => {
+      const left = 28;
+      const right = 292;
+      const bottom = 86;
+      const top = 24;
+      const width = right - left;
+      const height = bottom - top;
+      if (segments.length === 1) return [{ x: left, y: 55 }, { x: right, y: 55 }];
+      if (segments.length === 2) {
+        const scale = Math.min(width / Math.max(segments[0], 1), height / Math.max(segments[1], 1));
+        const a = segments[0] * scale;
+        const b = segments[1] * scale;
+        return [
+          { x: left, y: bottom },
+          { x: left + a, y: bottom },
+          { x: left + a, y: bottom - b }
+        ];
+      }
+      const horiz = segments[0] + segments[2];
+      const scale = Math.min(width / Math.max(horiz, 1), height / Math.max(segments[1], 1));
+      const a = segments[0] * scale;
+      const b = segments[1] * scale;
+      const c = segments[2] * scale;
+      return [
+        { x: left, y: bottom },
+        { x: left + a, y: bottom },
+        { x: left + a, y: bottom - b },
+        { x: left + a + c, y: bottom - b }
+      ];
+    })();
+    const fencePath = polylinePath(plot);
+    const postMarkers = (() => {
+      const markers: Array<{ x: number; y: number }> = [];
+      let total = 0;
+      const segLens: number[] = [];
+      for (let i = 1; i < plot.length; i += 1) {
+        const a = plot[i - 1];
+        const b = plot[i];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        segLens.push(len);
+        total += len;
+      }
+      if (total <= 0) return markers;
+      for (let i = 0; i < postCount; i += 1) {
+        const target = (i / Math.max(postCount - 1, 1)) * total;
+        let remain = target;
+        for (let seg = 0; seg < segLens.length; seg += 1) {
+          if (remain <= segLens[seg] || seg === segLens.length - 1) {
+            const start = plot[seg];
+            const end = plot[seg + 1];
+            const t = segLens[seg] > 0 ? remain / segLens[seg] : 0;
+            markers.push({
+              x: start.x + (end.x - start.x) * t,
+              y: start.y + (end.y - start.y) * t
+            });
+            break;
+          }
+          remain -= segLens[seg];
+        }
+      }
+      return markers;
+    })();
+
+    return (
+      <View style={styles.section}>
+        <Text>Fence Diagram (conceptual)</Text>
+        <View style={styles.diagramBox}>
+          <Svg width={340} height={160}>
+            <Path d={fencePath} stroke="#7c2d12" strokeWidth={2.5} fill="none" />
+            {postMarkers.map((p, i) => (
+              <Line key={`post-${i}`} x1={p.x} y1={p.y - 10} x2={p.x} y2={p.y + 10} stroke="#1d4ed8" strokeWidth={2} />
+            ))}
+            <Text style={{ fontSize: 8 }} x={28} y={120}>{`Fence run: ${fenceLength.toFixed(1)} lf`}</Text>
+            <Text style={{ fontSize: 8 }} x={28} y={132}>{`Fence height: ${fenceHeight.toFixed(1)} ft`}</Text>
+            <Text style={{ fontSize: 8 }} x={28} y={144}>{`Posts: ${postCount} • Rails: ${railCount} • Gates: ${gateCount}`}</Text>
+          </Svg>
+          <Text style={styles.caption}>
+            Fence material: {String(inputs.fence_material ?? 'wood')} | Style: {String(inputs.fence_style ?? 'privacy')} | Layout: {fenceLayout === 'u_shape' ? 'U-shape' : fenceLayout === 'corner' ? 'Corner (L)' : 'Straight'} | Post spacing: {postSpacing.toFixed(1)} ft
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   const polygonPoints = Array.isArray(inputs.deck_polygon_points)
     ? inputs.deck_polygon_points
@@ -384,6 +489,14 @@ export function MaterialsPdf({ project, items, inputs }: { project: any; items: 
 }
 
 export function InternalEstimatePdf({ project, estimate, labor, items, inputs }: { project: any; estimate: any; labor: any; items: any[]; inputs?: any }) {
+  const isCovered = Boolean(inputs?.is_covered);
+  const roofTypeLabel = String(inputs?.roof_type ?? 'shed') === 'gable' ? 'Gable' : 'Lean-to';
+  const roofPitch = String(inputs?.roof_pitch ?? '4:12');
+  const roofMaterial = String(inputs?.roofing_material ?? 'shingle');
+  const roofProductType = String(inputs?.roofing_product_type ?? '').trim();
+  const roofColor = String(inputs?.roofing_color ?? '').trim();
+  const ceilingFinish = String(inputs?.ceiling_finish ?? 'none');
+  const fanPlateCount = Math.max(0, Number(inputs?.ceiling_fan_plate_count ?? 0));
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -397,6 +510,14 @@ export function InternalEstimatePdf({ project, estimate, labor, items, inputs }:
           <Text>Tax: {money(estimate.tax_amount)}</Text>
           <Text>Total: {money(estimate.grand_total)}</Text>
         </View>
+        {isCovered ? (
+          <View style={styles.section}>
+            <Text>Covered Deck Package</Text>
+            <Text>{`Roof style: ${roofTypeLabel} • pitch ${roofPitch}`}</Text>
+            <Text>{`Roofing: ${roofMaterial}${roofProductType ? ` • ${roofProductType}` : ''}${roofColor ? ` • ${roofColor}` : ''}`}</Text>
+            <Text>{`Ceiling: ${ceilingFinish}${fanPlateCount > 0 ? ` • fan plates ${fanPlateCount}` : ''}`}</Text>
+          </View>
+        ) : null}
         <View style={styles.section}>
           <Text>Labor Breakdown</Text>
           {(labor.tasks ?? []).map((task: any) => (
@@ -411,27 +532,67 @@ export function InternalEstimatePdf({ project, estimate, labor, items, inputs }:
   );
 }
 
-export function ClientProposalPdf({ project, estimate }: { project: any; estimate: any }) {
+export function ClientProposalPdf({ project, estimate, inputs }: { project: any; estimate: any; inputs?: any }) {
+  const isFence = String(project?.type ?? '') === 'fence';
+  const isCovered = !isFence && Boolean(inputs?.is_covered);
+  const roofTypeLabel = String(inputs?.roof_type ?? 'shed') === 'gable' ? 'Gable' : 'Lean-to';
+  const roofPitch = String(inputs?.roof_pitch ?? '4:12');
+  const roofMaterial = String(inputs?.roofing_material ?? 'shingle');
+  const roofProductType = String(inputs?.roofing_product_type ?? '').trim();
+  const roofColor = String(inputs?.roofing_color ?? '').trim();
+  const ceilingFinish = String(inputs?.ceiling_finish ?? 'none');
+  const fanPlateCount = Math.max(0, Number(inputs?.ceiling_fan_plate_count ?? 0));
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <Text style={styles.h1}>Client Proposal - {project.name}</Text>
+        <FramingSchematic inputs={inputs} />
         <View style={styles.section}>
           <Text>Scope Summary</Text>
-          <Text>- Build deck/covered deck per approved design inputs and site constraints.</Text>
-          <Text>- Includes framing, decking, rails, stairs, and optional cover components.</Text>
+          {isFence ? (
+            <>
+              <Text>- Install fence per approved layout, style, and site constraints.</Text>
+              <Text>- Includes posts/footings, rails or panels/pickets, hardware, and gate installation as listed.</Text>
+              <Text>- Utility locates, survey line confirmation, and permit requirements are owner/site dependent unless noted.</Text>
+            </>
+          ) : (
+            <>
+              <Text>- Build deck/covered deck per approved design inputs and site constraints.</Text>
+              <Text>- Includes framing, decking, rails, stairs, and optional cover components.</Text>
+            </>
+          )}
         </View>
+        {isCovered ? (
+          <View style={styles.section}>
+            <Text>Covered Deck Package</Text>
+            <Text>{`Roof style: ${roofTypeLabel} • pitch ${roofPitch}`}</Text>
+            <Text>{`Roofing: ${roofMaterial}${roofProductType ? ` • ${roofProductType}` : ''}${roofColor ? ` • ${roofColor}` : ''}`}</Text>
+            <Text>{`Ceiling: ${ceilingFinish}${fanPlateCount > 0 ? ` • fan plates ${fanPlateCount}` : ''}`}</Text>
+          </View>
+        ) : null}
         <View style={styles.section}>
-          <Text>Timeline (placeholder): 2-4 weeks from signed approval and material release.</Text>
+          <Text>
+            Timeline (placeholder): {isFence ? '1-3 weeks' : '2-4 weeks'} from signed approval and material release.
+          </Text>
         </View>
         <View style={styles.section}>
           <Text>Total Proposed Price: {money(estimate.grand_total)}</Text>
         </View>
         <View style={styles.section}>
           <Text>Payment Schedule (placeholder)</Text>
-          <Text>- 40% deposit</Text>
-          <Text>- 40% mid-project draw</Text>
-          <Text>- 20% at substantial completion</Text>
+          {isFence ? (
+            <>
+              <Text>- 50% deposit</Text>
+              <Text>- 40% at posts/set + framing complete</Text>
+              <Text>- 10% at substantial completion</Text>
+            </>
+          ) : (
+            <>
+              <Text>- 40% deposit</Text>
+              <Text>- 40% mid-project draw</Text>
+              <Text>- 20% at substantial completion</Text>
+            </>
+          )}
         </View>
       </Page>
     </Document>

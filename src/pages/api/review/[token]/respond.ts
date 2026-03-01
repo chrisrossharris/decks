@@ -3,9 +3,24 @@ import { createProjectActivity, createProposalReviewByToken, resolveShareToken }
 import { sendEmail } from '@/lib/notifications/email';
 import { enqueueEmailJob } from '@/lib/notifications/queue';
 import { internalDecisionAlertTemplate } from '@/lib/notifications/templates';
+import { apiLog } from '@/lib/utils/log';
+import { checkRateLimit, getClientIp } from '@/lib/utils/rate-limit';
 
 export const POST: APIRoute = async (context) => {
   const token = context.params.token as string;
+  const ip = getClientIp(context.request);
+  const limiter = checkRateLimit({
+    key: `review_respond:${token}:${ip}`,
+    limit: 20,
+    windowMs: 10 * 60_000
+  });
+  if (!limiter.allowed) {
+    apiLog(context, 'warn', 'rate_limited_review_respond', { token, ip });
+    return new Response('Too many requests', {
+      status: 429,
+      headers: { 'retry-after': String(limiter.retryAfterSec) }
+    });
+  }
   const form = await context.request.formData();
 
   const reviewerName = form.get('reviewer_name')?.toString().trim() ?? '';
@@ -34,6 +49,7 @@ export const POST: APIRoute = async (context) => {
   });
 
   if (!result) {
+    apiLog(context, 'warn', 'review_response_invalid_token', { token, reviewer_email: reviewerEmail || null });
     return new Response('Review link is invalid or expired', { status: 404 });
   }
 
@@ -81,5 +97,10 @@ export const POST: APIRoute = async (context) => {
     }
   }
 
+  apiLog(context, 'info', 'review_response_recorded', {
+    token,
+    decision,
+    reviewer_email: reviewerEmail || null
+  });
   return context.redirect(`/review/${token}?submitted=1`);
 };

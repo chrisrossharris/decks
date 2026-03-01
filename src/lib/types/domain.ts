@@ -8,7 +8,8 @@ export type RailingSides = 'all' | '3_sides' | 'custom';
 export type LedgerSide = 'top' | 'right' | 'bottom' | 'left';
 export type RoofType = 'shed' | 'gable';
 export type RoofingMaterial = 'shingle' | 'metal';
-export type CeilingFinish = 'none' | 'drywall' | 'tongue_groove';
+export type RoofPitch = '2:12' | '3:12' | '4:12' | '5:12' | '6:12' | '8:12' | '10:12' | '12:12';
+export type CeilingFinish = 'none' | 'drywall' | 'tongue_groove' | 'beadboard';
 
 export interface DesignInputs {
   design_mode?: 'deck' | 'fence';
@@ -30,11 +31,15 @@ export interface DesignInputs {
   custom_railing_lf?: number | null;
   is_covered: boolean;
   roof_type?: RoofType;
+  roof_pitch?: RoofPitch;
   roof_length_ft?: number;
   roof_width_ft?: number;
   rafter_spacing_in?: 12 | 16 | 24;
   roofing_material?: RoofingMaterial;
+  roofing_product_type?: string;
+  roofing_color?: string;
   ceiling_finish?: CeilingFinish;
+  ceiling_fan_plate_count?: number;
   cover_post_count?: number;
   cover_beam_size?: string;
   shape_mode?: 'rectangle' | 'polygon';
@@ -46,6 +51,10 @@ export interface DesignInputs {
   fence_height_ft?: number;
   fence_material?: 'wood' | 'vinyl' | 'metal';
   fence_style?: 'privacy' | 'picket' | 'panel';
+  fence_layout?: 'straight' | 'corner' | 'u_shape';
+  fence_side_a_ft?: number | null;
+  fence_side_b_ft?: number | null;
+  fence_side_c_ft?: number | null;
   fence_post_spacing_ft?: number;
   fence_rail_count?: number;
   fence_picket_width_in?: number;
@@ -94,6 +103,11 @@ export interface TakeoffAssumptionOverrides {
   railing_post_spacing_ft?: number;
   beam_double_ply_length_ft?: number;
   beam_triple_ply_length_ft?: number;
+  require_complete_covered_package?: boolean;
+  fence_post_spacing_ft?: number;
+  fence_rail_count?: number;
+  fence_bags_per_post?: number;
+  fence_hardware_kit_lf?: number;
 }
 
 export interface LaborTask {

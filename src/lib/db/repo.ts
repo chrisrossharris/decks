@@ -47,6 +47,28 @@ export async function getProject(userId: string, projectId: string) {
   return row ?? null;
 }
 
+export async function canEditProject(userId: string, projectId: string) {
+  const [owner] = await db()`
+    SELECT id
+    FROM projects
+    WHERE id = ${projectId}
+      AND user_id = ${userId}
+    LIMIT 1
+  `;
+  if (owner) return true;
+
+  const [member] = await db()`
+    SELECT id
+    FROM project_members
+    WHERE project_id = ${projectId}
+      AND user_id = ${userId}
+      AND status = 'accepted'
+      AND role <> 'viewer'
+    LIMIT 1
+  `;
+  return Boolean(member);
+}
+
 export async function isProjectOwner(userId: string, projectId: string) {
   const [row] = await db()`SELECT id FROM projects WHERE id = ${projectId} AND user_id = ${userId}`;
   return Boolean(row);
@@ -63,9 +85,14 @@ export async function getProjectAssumptions(projectId: string): Promise<TakeoffA
 }
 
 export async function upsertProjectAssumptions(projectId: string, userId: string, overrides: TakeoffAssumptionOverrides) {
+  const [existing] = await db()`SELECT overrides_json FROM project_assumptions WHERE project_id = ${projectId}`;
+  const mergedOverrides: TakeoffAssumptionOverrides = {
+    ...(existing?.overrides_json ?? {}),
+    ...overrides
+  };
   const [row] = await db()`
     INSERT INTO project_assumptions (project_id, overrides_json, updated_by, updated_at)
-    VALUES (${projectId}, ${JSON.stringify(overrides)}::jsonb, ${userId}, now())
+    VALUES (${projectId}, ${JSON.stringify(mergedOverrides)}::jsonb, ${userId}, now())
     ON CONFLICT (project_id) DO UPDATE
       SET overrides_json = EXCLUDED.overrides_json,
           updated_by = EXCLUDED.updated_by,

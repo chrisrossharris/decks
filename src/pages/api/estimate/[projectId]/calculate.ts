@@ -1,14 +1,16 @@
 import type { APIRoute } from 'astro';
 import { estimateTotals } from '@/lib/engines/estimate';
 import { estimateSettingsSchema } from '@/lib/types/schemas';
-import { getProject, latestLaborPlan, latestTakeoff, upsertEstimate } from '@/lib/db/repo';
-import { requireUserId } from '@/lib/utils/auth';
+import { createProjectActivity, getProject, latestLaborPlan, latestTakeoff, upsertEstimate } from '@/lib/db/repo';
+import { requireProjectEditAccess, requireUserId } from '@/lib/utils/auth';
 import { ok } from '@/lib/utils/http';
 import { parseJsonObject } from '@/lib/utils/json';
 
 export const POST: APIRoute = async (context) => {
   const userId = requireUserId(context);
   const projectId = context.params.projectId as string;
+  const editGuard = await requireProjectEditAccess(context, userId, projectId);
+  if (editGuard) return editGuard;
 
   const project = await getProject(userId, projectId);
   if (!project) return new Response('Project not found', { status: 404 });
@@ -59,6 +61,18 @@ export const POST: APIRoute = async (context) => {
     profit_amount: toFinite(totals.profit_amount),
     tax_amount: toFinite(totals.tax_amount),
     grand_total: toFinite(totals.grand_total)
+  });
+
+  await createProjectActivity({
+    projectId,
+    actor: project.user_id === userId ? 'owner' : 'collaborator',
+    actorRef: userId,
+    eventKey: 'estimate_calculated',
+    eventJson: {
+      grand_total: toFinite(totals.grand_total),
+      subtotal_materials: toFinite(totals.subtotal_materials),
+      subtotal_labor: toFinite(totals.subtotal_labor)
+    }
   });
 
   return ok(totals);

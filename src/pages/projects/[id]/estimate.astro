@@ -22,6 +22,9 @@ const inputs = parseJsonObject(inputsRow?.inputs_json, {});
 const items = Array.isArray(takeoff?.items) ? takeoff.items : [];
 const posts = Number(items.find((i: any) => i.category === 'Footings' && String(i.name ?? '').includes('PT structural post'))?.qty ?? 0);
 const bags = Number(items.find((i: any) => i.category === 'Footings' && i.name === 'Concrete bag')?.qty ?? 0);
+const fencePosts = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Fence post')?.qty ?? 0);
+const fenceRails = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Fence rail')?.qty ?? 0);
+const isFence = (inputs as any).design_mode === 'fence' || project.type === 'fence';
 const takeoffTotals = parseJsonObject((takeoff as any)?.totals_json, {} as Record<string, unknown>);
 const deckSqft = Number(
   (takeoffTotals as any).deck_sqft ??
@@ -35,16 +38,16 @@ const deckSqft = Number(
   <section class="mb-4 card p-3">
     <div class="grid gap-2 sm:grid-cols-4">
       <div class="surface-muted rounded-md p-2">
-        <p class="label">Deck Area</p>
-        <p class="font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} sqft</p>
+        <p class="label">{isFence ? 'Fence Area' : 'Deck Area'}</p>
+        <p class="font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} {isFence ? 'sqft' : 'sqft'}</p>
       </div>
       <div class="surface-muted rounded-md p-2">
-        <p class="label">Structural Posts</p>
-        <p class="font-semibold">{posts}</p>
+        <p class="label">{isFence ? 'Fence Posts' : 'Structural Posts'}</p>
+        <p class="font-semibold">{isFence ? fencePosts : posts}</p>
       </div>
       <div class="surface-muted rounded-md p-2">
-        <p class="label">Concrete Bags</p>
-        <p class="font-semibold">{bags}</p>
+        <p class="label">{isFence ? 'Fence Rails (lf)' : 'Concrete Bags'}</p>
+        <p class="font-semibold">{isFence ? fenceRails.toFixed(0) : bags}</p>
       </div>
       <div class="surface-muted rounded-md p-2">
         <p class="label">Current Total</p>

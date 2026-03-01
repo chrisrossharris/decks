@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.astro';
 import DesignInputsForm from '@/components/DesignInputsForm';
 import ProjectSubnav from '@/components/ProjectSubnav.astro';
-import { getProject, latestDesignInputs } from '@/lib/db/repo';
+import { getProject, getProjectAssumptions, latestDesignInputs } from '@/lib/db/repo';
 import { parseJsonObject } from '@/lib/utils/json';
 
 const userId = Astro.locals.auth().userId;
@@ -13,6 +13,7 @@ const project = await getProject(userId, projectId);
 if (!project) throw new Error('Project not found');
 
 const latest = await latestDesignInputs(projectId);
+const assumptionOverrides = (await getProjectAssumptions(projectId)) ?? {};
 const baseDefaults = (project.type === 'fence'
   ? {
       design_mode: 'fence',
@@ -42,6 +43,10 @@ const baseDefaults = (project.type === 'fence'
       fence_height_ft: 6,
       fence_material: 'wood',
       fence_style: 'privacy',
+      fence_layout: 'straight',
+      fence_side_a_ft: null,
+      fence_side_b_ft: null,
+      fence_side_c_ft: null,
       fence_post_spacing_ft: 8,
       fence_rail_count: 2,
       fence_picket_width_in: 5.5,
@@ -69,11 +74,15 @@ const baseDefaults = (project.type === 'fence'
       custom_railing_lf: null,
       is_covered: project.type === 'covered_deck',
       roof_type: 'shed',
+      roof_pitch: '4:12',
       roof_length_ft: 20,
       roof_width_ft: 14,
       rafter_spacing_in: 16,
       roofing_material: 'shingle',
+      roofing_product_type: 'architectural',
+      roofing_color: 'charcoal',
       ceiling_finish: 'none',
+      ceiling_fan_plate_count: 0,
       cover_post_count: 4,
       cover_beam_size: 'LVL 1.75x11.875',
       shape_mode: 'rectangle',
@@ -85,6 +94,10 @@ const baseDefaults = (project.type === 'fence'
       fence_height_ft: 0,
       fence_material: 'wood',
       fence_style: 'privacy',
+      fence_layout: 'straight',
+      fence_side_a_ft: null,
+      fence_side_b_ft: null,
+      fence_side_c_ft: null,
       fence_post_spacing_ft: 8,
       fence_rail_count: 2,
       fence_picket_width_in: 5.5,
@@ -116,5 +129,6 @@ const defaults = {
     projectId={projectId}
     defaults={defaults}
     projectType={project.type}
+    requireCompleteCoveredPackageDefault={Boolean((assumptionOverrides as any).require_complete_covered_package ?? false)}
   />
 </AppLayout>

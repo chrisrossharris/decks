@@ -32,11 +32,15 @@ export const designInputsSchema = z.object({
   custom_railing_lf: optionalPositive,
   is_covered: z.coerce.boolean().default(false),
   roof_type: z.enum(['shed', 'gable']).optional(),
+  roof_pitch: z.enum(['2:12', '3:12', '4:12', '5:12', '6:12', '8:12', '10:12', '12:12']).optional().default('4:12'),
   roof_length_ft: optionalPositive,
   roof_width_ft: optionalPositive,
   rafter_spacing_in: spacingInSchema.optional().default(16),
   roofing_material: z.enum(['shingle', 'metal']).optional(),
-  ceiling_finish: z.enum(['none', 'drywall', 'tongue_groove']).optional().default('none'),
+  roofing_product_type: z.string().max(80).optional(),
+  roofing_color: z.string().max(60).optional(),
+  ceiling_finish: z.enum(['none', 'drywall', 'tongue_groove', 'beadboard']).optional().default('none'),
+  ceiling_fan_plate_count: z.coerce.number().int().min(0).optional().default(0),
   cover_post_count: z.preprocess((value) => {
     if (value === '' || value === undefined || value === null) return undefined;
     return Number(value);
@@ -54,6 +58,10 @@ export const designInputsSchema = z.object({
   fence_height_ft: optionalNonNegative.default(0),
   fence_material: z.enum(['wood', 'vinyl', 'metal']).optional().default('wood'),
   fence_style: z.enum(['privacy', 'picket', 'panel']).optional().default('privacy'),
+  fence_layout: z.enum(['straight', 'corner', 'u_shape']).optional().default('straight'),
+  fence_side_a_ft: optionalNonNegative.default(null),
+  fence_side_b_ft: optionalNonNegative.default(null),
+  fence_side_c_ft: optionalNonNegative.default(null),
   fence_post_spacing_ft: z.coerce.number().positive().optional().default(8),
   fence_rail_count: z.coerce.number().int().min(1).optional().default(2),
   fence_picket_width_in: z.coerce.number().positive().optional().default(5.5),

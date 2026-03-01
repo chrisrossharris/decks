@@ -14,20 +14,60 @@ const links = await listProjectShareLinks(projectId);
 const reviews = await listProposalReviews(projectId);
 const activity = await listProjectActivity(projectId);
 const origin = Astro.url.origin;
+const isFence = project.type === 'fence';
+const hasActiveEstimateLink = links.some((l: any) => l.kind === 'estimate' && l.is_active);
+const hasDecision = reviews.length > 0;
 ---
 
 <AppLayout title={`Share With Client - ${project.name}`}>
   <ProjectSubnav projectId={projectId} />
 
+  <section class="mb-4 card p-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="font-display text-lg font-semibold">What to do next</h2>
+        <p class="mt-1 text-sm text-slate-600">Create a review link, collect client response, then move to scheduling handoff.</p>
+      </div>
+      <a
+        href={hasDecision ? `/projects/${projectId}/schedule` : '#'}
+        class:list={[
+          'rounded-md px-4 py-2 text-sm font-semibold',
+          hasDecision ? 'bg-pine text-white' : 'btn-disabled'
+        ]}
+        aria-disabled={!hasDecision}
+      >
+        {hasDecision ? 'Next: Scheduling Handoff' : 'Await Client Decision'}
+      </a>
+    </div>
+    <div class="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={hasActiveEstimateLink ? 'status-done' : 'status-pending'}>{hasActiveEstimateLink ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Estimate Link Shared</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={hasDecision ? 'status-done' : 'status-pending'}>{hasDecision ? 'Done' : 'Pending'}</span>
+        <p class="font-semibold">Client Decision Recorded</p>
+      </div>
+      <div class="rounded-md border border-slate-700 px-3 py-2">
+        <span class={(project.schedule_stage ?? 'backlog') !== 'backlog' ? 'status-done' : 'status-pending'}>
+          {(project.schedule_stage ?? 'backlog') !== 'backlog' ? 'Done' : 'Pending'}
+        </span>
+        <p class="font-semibold">Scheduling Started</p>
+      </div>
+    </div>
+  </section>
+
   <section class="grid gap-4 lg:grid-cols-2">
     <article class="card p-4">
       <h2 class="font-display text-xl font-semibold">Create Review Link</h2>
-      <p class="mt-1 text-sm text-slate-600">Generate a secure public link for client blueprint or estimate review.</p>
+      <p class="mt-1 text-sm text-slate-600">
+        Generate a secure public link for client {isFence ? 'fence plan' : 'blueprint'} or estimate review.
+      </p>
       <form class="mt-3 grid gap-3" method="post" action={`/api/projects/${projectId}/share/create`}>
         <label>
           <p class="label">Review Type</p>
           <select class="input" name="kind" required>
-            <option value="blueprint">Blueprint</option>
+            <option value="blueprint">{isFence ? 'Fence Plan' : 'Blueprint'}</option>
             <option value="estimate">Estimate</option>
           </select>
         </label>
@@ -46,7 +86,7 @@ const origin = Astro.url.origin;
     <article class="card p-4">
       <h2 class="font-display text-xl font-semibold">How Client Review Works</h2>
       <ul class="mt-3 space-y-2 text-sm text-slate-700">
-        <li>Blueprint link: design inputs + project image gallery.</li>
+        <li>{isFence ? 'Fence plan link' : 'Blueprint link'}: design inputs + project image gallery.</li>
         <li>Estimate link: top-line estimate summary totals.</li>
         <li>Links are tokenized and can be revoked anytime.</li>
       </ul>

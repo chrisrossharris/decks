@@ -17,5 +17,5 @@ const defaultPlan = await latestLaborPlan(projectId);
 
 <AppLayout title={`Labor - ${project.name}`}>
   <ProjectSubnav projectId={projectId} />
-  <LaborPlanner client:load projectId={projectId} templates={templates} defaultPlan={defaultPlan?.labor_json ?? defaultPlan} />
+  <LaborPlanner client:load projectId={projectId} templates={templates} defaultPlan={defaultPlan?.labor_json ?? defaultPlan} projectType={project.type} />
 </AppLayout>

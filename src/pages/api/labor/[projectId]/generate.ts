@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
-import { createOrReplaceLaborPlan, getProject, latestDesignInputs, latestTakeoff, listLaborTemplates } from '@/lib/db/repo';
+import { createOrReplaceLaborPlan, createProjectActivity, getProject, latestDesignInputs, latestTakeoff, listLaborTemplates } from '@/lib/db/repo';
 import { DEFAULT_LABOR_TEMPLATES, generateLaborPlan } from '@/lib/engines/labor';
 import { designInputsSchema } from '@/lib/types/schemas';
-import { requireUserId } from '@/lib/utils/auth';
+import { requireProjectEditAccess, requireUserId } from '@/lib/utils/auth';
 import { ok } from '@/lib/utils/http';
 import { parseJsonObject } from '@/lib/utils/json';
 import type { TakeoffResult } from '@/lib/types/domain';
@@ -10,6 +10,8 @@ import type { TakeoffResult } from '@/lib/types/domain';
 export const POST: APIRoute = async (context) => {
   const userId = requireUserId(context);
   const projectId = context.params.projectId as string;
+  const editGuard = await requireProjectEditAccess(context, userId, projectId);
+  if (editGuard) return editGuard;
   const rawBody = await context.request.json().catch(() => ({}));
   const body = parseJsonObject<{ template_id?: string; include_demo?: boolean }>(rawBody, {});
 
@@ -44,5 +46,16 @@ export const POST: APIRoute = async (context) => {
   });
 
   const row = await createOrReplaceLaborPlan(projectId, template.id ?? null, plan, plan.total_labor_cost);
+  await createProjectActivity({
+    projectId,
+    actor: project.user_id === userId ? 'owner' : 'collaborator',
+    actorRef: userId,
+    eventKey: 'labor_generated',
+    eventJson: {
+      template: template.name,
+      total_hours: plan.total_hours,
+      total_labor_cost: plan.total_labor_cost
+    }
+  });
   return ok({ ...plan, id: row.id });
 };

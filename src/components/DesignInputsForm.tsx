@@ -5,23 +5,27 @@ import type { DesignInputs, ProjectType } from '@/lib/types/domain';
 import { z } from 'zod';
 import DeckShapeDrawer from './DeckShapeDrawer';
 import { useEffect, useState } from 'react';
+import { validateCoveredPackage } from '@/lib/engines/covered';
 
 type FormData = z.infer<typeof designInputsSchema>;
 
 export default function DesignInputsForm({
   projectId,
   defaults,
-  projectType
+  projectType,
+  requireCompleteCoveredPackageDefault = false
 }: {
   projectId: string;
   defaults: DesignInputs;
   projectType: ProjectType;
+  requireCompleteCoveredPackageDefault?: boolean;
 }) {
   const { register, handleSubmit, watch, setValue, setError, clearErrors, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(designInputsSchema),
     defaultValues: defaults
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [requireCompleteCoveredPackage, setRequireCompleteCoveredPackage] = useState<boolean>(requireCompleteCoveredPackageDefault);
 
   const isCovered = watch('is_covered');
   const shapeMode = watch('shape_mode') ?? 'rectangle';
@@ -30,6 +34,46 @@ export default function DesignInputsForm({
   const ledgerEnabled = watch('ledger');
   const designMode = watch('design_mode') ?? (projectType === 'fence' ? 'fence' : 'deck');
   const deckingMaterial = watch('decking_material');
+  const roofingMaterial = watch('roofing_material') ?? 'shingle';
+  const roofType = watch('roof_type') ?? 'shed';
+  const roofPitch = watch('roof_pitch') ?? '4:12';
+  const roofLength = Number(watch('roof_length_ft') ?? 0);
+  const roofWidth = Number(watch('roof_width_ft') ?? 0);
+  const roofingType = String(watch('roofing_product_type') ?? '').trim();
+  const roofingColor = String(watch('roofing_color') ?? '').trim();
+  const ceilingFinish = watch('ceiling_finish') ?? 'none';
+  const fanPlates = Number(watch('ceiling_fan_plate_count') ?? 0);
+  const coverPosts = Number(watch('cover_post_count') ?? 0);
+  const coverBeamSize = String(watch('cover_beam_size') ?? '').trim();
+  const fenceLayout = watch('fence_layout') ?? 'straight';
+  const fenceSideA = Number(watch('fence_side_a_ft') ?? 0);
+  const fenceSideB = Number(watch('fence_side_b_ft') ?? 0);
+  const fenceSideC = Number(watch('fence_side_c_ft') ?? 0);
+  const coveredValidation = validateCoveredPackage({
+    roof_type: roofType as any,
+    roof_pitch: roofPitch as any,
+    roof_length_ft: roofLength,
+    roof_width_ft: roofWidth,
+    roofing_material: roofingMaterial as any,
+    roofing_product_type: roofingType,
+    roofing_color: roofingColor,
+    ceiling_finish: ceilingFinish as any,
+    cover_post_count: coverPosts,
+    cover_beam_size: coverBeamSize
+  });
+  const coveredChecklist = [
+    { key: 'roof_style', label: 'Roof style', ok: !coveredValidation.missing.includes('Roof style') },
+    { key: 'roof_pitch', label: 'Roof pitch', ok: !coveredValidation.missing.includes('Roof pitch') },
+    { key: 'roof_dims', label: 'Roof length + width', ok: !coveredValidation.missing.includes('Roof length + width') },
+    { key: 'roof_material', label: 'Roofing material + type', ok: !coveredValidation.missing.includes('Roofing material + type') },
+    { key: 'roof_color', label: 'Roof color', ok: !coveredValidation.missing.includes('Roof color') },
+    { key: 'ceiling', label: 'Ceiling finish', ok: !coveredValidation.missing.includes('Ceiling finish') },
+    { key: 'cover_posts', label: 'Cover post count', ok: !coveredValidation.missing.includes('Cover post count') },
+    { key: 'cover_beam', label: 'Cover beam size', ok: !coveredValidation.missing.includes('Cover beam size') }
+  ];
+  const coveredCompleteCount = coveredChecklist.filter((item) => item.ok).length;
+  const coveredIsReady = coveredValidation.ready;
+  const roofArea = roofLength > 0 && roofWidth > 0 ? roofLength * roofWidth : 0;
 
   useEffect(() => {
     register('deck_polygon_points');
@@ -52,6 +96,10 @@ export default function DesignInputsForm({
     } as FormData;
     reset(normalized);
   }, [defaults, projectType, reset]);
+
+  useEffect(() => {
+    setRequireCompleteCoveredPackage(requireCompleteCoveredPackageDefault);
+  }, [requireCompleteCoveredPackageDefault]);
 
   useEffect(() => {
     if (shapeMode === 'rectangle') {
@@ -77,6 +125,37 @@ export default function DesignInputsForm({
     }
   }, [designMode, deckingMaterial, setValue]);
 
+  function applyFencePreset(preset: 'straight' | 'corner' | 'u_shape') {
+    setValue('fence_layout', preset, { shouldDirty: true });
+    if (preset === 'straight') {
+      setValue('fence_side_a_ft', null, { shouldDirty: true });
+      setValue('fence_side_b_ft', null, { shouldDirty: true });
+      setValue('fence_side_c_ft', null, { shouldDirty: true });
+      return;
+    }
+    if (preset === 'corner') {
+      setValue('fence_side_a_ft', fenceSideA > 0 ? fenceSideA : 40, { shouldDirty: true });
+      setValue('fence_side_b_ft', fenceSideB > 0 ? fenceSideB : 30, { shouldDirty: true });
+      setValue('fence_side_c_ft', null, { shouldDirty: true });
+      return;
+    }
+    setValue('fence_side_a_ft', fenceSideA > 0 ? fenceSideA : 30, { shouldDirty: true });
+    setValue('fence_side_b_ft', fenceSideB > 0 ? fenceSideB : 20, { shouldDirty: true });
+    setValue('fence_side_c_ft', fenceSideC > 0 ? fenceSideC : 30, { shouldDirty: true });
+  }
+
+  function recalcFenceLengthFromSides() {
+    if (fenceLayout === 'corner') {
+      const total = Math.max(0, fenceSideA) + Math.max(0, fenceSideB);
+      if (total > 0) setValue('fence_length_ft', Number(total.toFixed(2)), { shouldDirty: true });
+      return;
+    }
+    if (fenceLayout === 'u_shape') {
+      const total = Math.max(0, fenceSideA) + Math.max(0, fenceSideB) + Math.max(0, fenceSideC);
+      if (total > 0) setValue('fence_length_ft', Number(total.toFixed(2)), { shouldDirty: true });
+    }
+  }
+
   async function onSubmit(values: FormData) {
     setSubmitError(null);
     if (values.shape_mode === 'polygon' && (values.deck_polygon_points?.length ?? 0) < 3) {
@@ -97,16 +176,37 @@ export default function DesignInputsForm({
       payload.joist_spacing_in = 12;
     }
 
+    if (requireCompleteCoveredPackage && payload.design_mode === 'deck' && payload.is_covered) {
+      const validation = validateCoveredPackage(payload);
+      if (!validation.ready) {
+        setSubmitError(`Covered package required before continue. Missing: ${validation.missing.join(', ')}`);
+        return;
+      }
+    }
+
     if (payload.shape_mode !== 'polygon') {
       payload.ledger_line_index = null;
       payload.deck_area_override_sqft = null;
       payload.deck_perimeter_override_lf = null;
     }
 
+    if (payload.design_mode === 'fence') {
+      if (payload.fence_layout === 'corner') {
+        const total = Number(payload.fence_side_a_ft ?? 0) + Number(payload.fence_side_b_ft ?? 0);
+        if (Number.isFinite(total) && total > 0) payload.fence_length_ft = Number(total.toFixed(2));
+      } else if (payload.fence_layout === 'u_shape') {
+        const total = Number(payload.fence_side_a_ft ?? 0) + Number(payload.fence_side_b_ft ?? 0) + Number(payload.fence_side_c_ft ?? 0);
+        if (Number.isFinite(total) && total > 0) payload.fence_length_ft = Number(total.toFixed(2));
+      }
+    }
+
     const res = await fetch(`/api/projects/${projectId}/inputs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        ...payload,
+        require_complete_covered_package: requireCompleteCoveredPackage
+      })
     });
     if (!res.ok) {
       const message = await res.text();
@@ -227,6 +327,60 @@ export default function DesignInputsForm({
         <input type="checkbox" {...register('is_covered')} />
         <span className="label !mt-0">Covered Deck Add-on</span>
       </label>
+      {isCovered && (
+        <div className="surface-muted sm:col-span-2 rounded-lg p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="label !mt-0">Covered Package Readiness</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                coveredIsReady
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                  : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+              }`}
+            >
+              {coveredIsReady ? 'Ready for Takeoff' : `Missing ${coveredChecklist.length - coveredCompleteCount}`}
+            </span>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
+              <p className="text-slate-500">Roof Package</p>
+              <p className="font-semibold">{roofType === 'gable' ? 'Gable' : 'Lean-to'} • {roofPitch}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
+              <p className="text-slate-500">Roofing</p>
+              <p className="font-semibold">{roofingMaterial} {roofingType ? `• ${roofingType}` : ''}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
+              <p className="text-slate-500">Roof Area</p>
+              <p className="font-semibold">{roofArea > 0 ? `${roofArea.toFixed(0)} sqft` : 'Add roof dimensions'}</p>
+            </div>
+            <div className="rounded-md border border-slate-200 px-2 py-1 text-xs dark:border-slate-700">
+              <p className="text-slate-500">Ceiling/Fans</p>
+              <p className="font-semibold">{ceilingFinish}{fanPlates > 0 ? ` • fan plates ${fanPlates}` : ''}</p>
+            </div>
+          </div>
+          {!coveredIsReady && (
+            <p className="mt-2 text-xs text-slate-500">
+              Missing: {coveredChecklist.filter((item) => !item.ok).map((item) => item.label).join(', ')}.
+            </p>
+          )}
+        </div>
+      )}
+      {designMode === 'deck' && (
+        <div className="surface-muted sm:col-span-2 rounded-lg p-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={requireCompleteCoveredPackage}
+              onChange={(event) => setRequireCompleteCoveredPackage(event.target.checked)}
+            />
+            <span className="label !mt-0">Require complete covered package before continue</span>
+          </label>
+          <p className="mt-1 text-xs text-slate-500">
+            Project-level setting. When enabled, covered-deck inputs must include full roof/ceiling package fields before Save Inputs + Continue.
+          </p>
+        </div>
+      )}
 
       <div className="surface-muted sm:col-span-2 rounded-lg p-3">
         <p className="label">Deck Shape</p>
@@ -277,10 +431,23 @@ export default function DesignInputsForm({
       {isCovered && (
         <>
           <label>
-            <p className="label">Roof Type</p>
+            <p className="label">Roof Style</p>
             <select className="input" {...register('roof_type')}>
-              <option value="shed">Shed</option>
+              <option value="shed">Lean-to (Shed)</option>
               <option value="gable">Gable</option>
+            </select>
+          </label>
+          <label>
+            <p className="label">Roof Pitch</p>
+            <select className="input" {...register('roof_pitch')}>
+              <option value="2:12">2:12</option>
+              <option value="3:12">3:12</option>
+              <option value="4:12">4:12</option>
+              <option value="5:12">5:12</option>
+              <option value="6:12">6:12</option>
+              <option value="8:12">8:12</option>
+              <option value="10:12">10:12</option>
+              <option value="12:12">12:12</option>
             </select>
           </label>
           <label>
@@ -307,12 +474,38 @@ export default function DesignInputsForm({
             </select>
           </label>
           <label>
+            <p className="label">{roofingMaterial === 'metal' ? 'Metal Roof Type' : 'Shingle Type'}</p>
+            {roofingMaterial === 'metal' ? (
+              <select className="input" {...register('roofing_product_type')}>
+                <option value="standing_seam">Standing Seam</option>
+                <option value="r_panel">R-Panel</option>
+                <option value="corrugated">Corrugated</option>
+              </select>
+            ) : (
+              <select className="input" {...register('roofing_product_type')}>
+                <option value="architectural">Architectural</option>
+                <option value="three_tab">3-tab</option>
+                <option value="designer">Designer/Luxury</option>
+              </select>
+            )}
+          </label>
+          <label>
+            <p className="label">Roof Color</p>
+            <input className="input" {...register('roofing_color')} placeholder="Charcoal, Bronze, Galvalume..." />
+          </label>
+          <label>
             <p className="label">Ceiling Finish</p>
             <select className="input" {...register('ceiling_finish')}>
               <option value="none">None</option>
               <option value="drywall">Drywall</option>
               <option value="tongue_groove">Tongue &amp; groove</option>
+              <option value="beadboard">Beadboard</option>
             </select>
+          </label>
+          <label>
+            <p className="label">Ceiling Fan Plates (ea)</p>
+            <input className="input" type="number" {...register('ceiling_fan_plate_count')} />
+            <p className="mt-1 text-xs text-slate-500">Fan-rated ceiling support plates/boxes allowance.</p>
           </label>
           <label>
             <p className="label">Cover Post Count</p>
@@ -329,14 +522,67 @@ export default function DesignInputsForm({
 
       {designMode === 'fence' && (
         <>
+          <div className="surface-muted sm:col-span-2 rounded-lg p-3">
+            <p className="label">Fence Layout Presets</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => applyFencePreset('straight')}>
+                Straight Run
+              </button>
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => applyFencePreset('corner')}>
+                Corner Run (L)
+              </button>
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => applyFencePreset('u_shape')}>
+                U-Run
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Presets fill segment lengths for faster entry. You can still edit manually.</p>
+          </div>
+          <label>
+            <p className="label">Fence Layout</p>
+            <select className="input" {...register('fence_layout')}>
+              <option value="straight">Straight</option>
+              <option value="corner">Corner (L)</option>
+              <option value="u_shape">U-Shape</option>
+            </select>
+          </label>
           <label>
             <p className="label">Fence Length (ft)</p>
             <input className="input" type="number" step="0.1" {...register('fence_length_ft')} />
+            {(fenceLayout === 'corner' || fenceLayout === 'u_shape') && (
+              <p className="mt-1 text-xs text-slate-500">For {fenceLayout === 'corner' ? 'Corner' : 'U-Shape'} layouts, total length can be derived from sides below.</p>
+            )}
           </label>
           <label>
             <p className="label">Fence Height (ft)</p>
             <input className="input" type="number" step="0.1" {...register('fence_height_ft')} />
           </label>
+          {(fenceLayout === 'corner' || fenceLayout === 'u_shape') && (
+            <>
+              <label>
+                <p className="label">Side A (ft)</p>
+                <input className="input" type="number" step="0.1" {...register('fence_side_a_ft')} />
+              </label>
+              <label>
+                <p className="label">Side B (ft)</p>
+                <input className="input" type="number" step="0.1" {...register('fence_side_b_ft')} />
+              </label>
+              {fenceLayout === 'u_shape' && (
+                <label>
+                  <p className="label">Side C (ft)</p>
+                  <input className="input" type="number" step="0.1" {...register('fence_side_c_ft')} />
+                </label>
+              )}
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={recalcFenceLengthFromSides}
+                >
+                  Recalculate Total Fence Length
+                </button>
+              </div>
+            </>
+          )}
           <label>
             <p className="label">Fence Material</p>
             <select className="input" {...register('fence_material')}>

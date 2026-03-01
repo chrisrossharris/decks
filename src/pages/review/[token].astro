@@ -3,8 +3,21 @@ import AppLayout from '@/layouts/AppLayout.astro';
 import { latestDesignInputs, latestEstimate, latestTakeoff, listProjectImages, recordShareViewByToken, resolveShareToken } from '@/lib/db/repo';
 import { parseJsonObject } from '@/lib/utils/json';
 import { money } from '@/lib/utils/format';
+import { checkRateLimit, getClientIp } from '@/lib/utils/rate-limit';
 
 const token = Astro.params.token as string;
+const ip = getClientIp(Astro.request);
+const limiter = checkRateLimit({
+  key: `review_page:${token}:${ip}`,
+  limit: 100,
+  windowMs: 60_000
+});
+if (!limiter.allowed) {
+  return new Response('Too many requests', {
+    status: 429,
+    headers: { 'retry-after': String(limiter.retryAfterSec) }
+  });
+}
 const share = await resolveShareToken(token);
 
 if (!share) {
@@ -18,6 +31,86 @@ const takeoff = share.kind === 'blueprint' ? await latestTakeoff(projectId) : nu
 const images = share.kind === 'blueprint' ? await listProjectImages(projectId) : [];
 const normalizedInputs = parseJsonObject(inputs?.inputs_json, {});
 const reviewInputs = normalizedInputs as any;
+const isFenceReview = String(reviewInputs.design_mode ?? 'deck') === 'fence';
+const fenceLayout = String(reviewInputs.fence_layout ?? 'straight');
+const fenceSideA = Math.max(0, Number(reviewInputs.fence_side_a_ft ?? 0));
+const fenceSideB = Math.max(0, Number(reviewInputs.fence_side_b_ft ?? 0));
+const fenceSideC = Math.max(0, Number(reviewInputs.fence_side_c_ft ?? 0));
+const fenceLengthLf = Math.max(0, Number(reviewInputs.fence_length_ft ?? 0));
+const fenceHeightFt = Math.max(0, Number(reviewInputs.fence_height_ft ?? 0));
+const fencePostSpacingFt = Math.max(1, Number(reviewInputs.fence_post_spacing_ft ?? 8));
+const fenceRailCount = Math.max(1, Number(reviewInputs.fence_rail_count ?? 2));
+const fenceGateCount = Math.max(0, Number(reviewInputs.fence_gate_count ?? 0));
+const fenceSegments = (() => {
+  if (fenceLayout === 'corner' && fenceSideA > 0 && fenceSideB > 0) return [fenceSideA, fenceSideB];
+  if (fenceLayout === 'u_shape' && fenceSideA > 0 && fenceSideB > 0 && fenceSideC > 0) return [fenceSideA, fenceSideB, fenceSideC];
+  return [fenceLengthLf];
+})();
+const fenceRunTotalLf = fenceSegments.reduce((sum, value) => sum + Math.max(0, value), 0) || fenceLengthLf;
+const fencePostCount = Math.max(2, Math.ceil(fenceRunTotalLf / fencePostSpacingFt) + 1);
+const fencePlot = (() => {
+  const left = 24;
+  const right = 296;
+  const bottom = 86;
+  const top = 24;
+  const width = right - left;
+  const height = bottom - top;
+
+  if (fenceSegments.length === 1) return [{ x: left, y: 55 }, { x: right, y: 55 }];
+  if (fenceSegments.length === 2) {
+    const scale = Math.min(width / Math.max(fenceSegments[0], 1), height / Math.max(fenceSegments[1], 1));
+    const a = fenceSegments[0] * scale;
+    const b = fenceSegments[1] * scale;
+    return [
+      { x: left, y: bottom },
+      { x: left + a, y: bottom },
+      { x: left + a, y: bottom - b }
+    ];
+  }
+  const horiz = fenceSegments[0] + fenceSegments[2];
+  const scale = Math.min(width / Math.max(horiz, 1), height / Math.max(fenceSegments[1], 1));
+  const a = fenceSegments[0] * scale;
+  const b = fenceSegments[1] * scale;
+  const c = fenceSegments[2] * scale;
+  return [
+    { x: left, y: bottom },
+    { x: left + a, y: bottom },
+    { x: left + a, y: bottom - b },
+    { x: left + a + c, y: bottom - b }
+  ];
+})();
+const fencePolylinePoints = fencePlot.map((p) => `${p.x},${p.y}`).join(' ');
+const fencePostMarkers = (() => {
+  const markers: Array<{ x: number; y: number }> = [];
+  let totalPx = 0;
+  const segLens: number[] = [];
+  for (let i = 1; i < fencePlot.length; i += 1) {
+    const a = fencePlot[i - 1];
+    const b = fencePlot[i];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    segLens.push(len);
+    totalPx += len;
+  }
+  if (totalPx <= 0) return markers;
+  for (let i = 0; i < fencePostCount; i += 1) {
+    const target = (i / Math.max(fencePostCount - 1, 1)) * totalPx;
+    let remain = target;
+    for (let seg = 0; seg < segLens.length; seg += 1) {
+      if (remain <= segLens[seg] || seg === segLens.length - 1) {
+        const start = fencePlot[seg];
+        const end = fencePlot[seg + 1];
+        const t = segLens[seg] > 0 ? remain / segLens[seg] : 0;
+        markers.push({
+          x: start.x + (end.x - start.x) * t,
+          y: start.y + (end.y - start.y) * t
+        });
+        break;
+      }
+      remain -= segLens[seg];
+    }
+  }
+  return markers;
+})();
 const polygonPoints = Array.isArray(reviewInputs.deck_polygon_points)
   ? reviewInputs.deck_polygon_points
       .map((p: any) => ({ x: Number(p?.x), y: Number(p?.y) }))
@@ -246,6 +339,46 @@ if (share.kind === 'estimate') {
         <h3 class="font-display text-xl font-semibold">Blueprint Inputs</h3>
         {inputs ? (
           <div class="mt-3 grid gap-3 text-sm">
+            {isFenceReview ? (
+              <>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div class="rounded-lg border border-slate-800 p-3">
+                    <p class="font-semibold">Fence Geometry</p>
+                    <p class="mt-1 text-slate-600">Length: {fenceRunTotalLf.toFixed(1)} ft</p>
+                    <p class="text-slate-600">Height: {fenceHeightFt.toFixed(1)} ft</p>
+                    <p class="text-slate-600">Layout: {fenceLayout === 'u_shape' ? 'U-shape' : fenceLayout === 'corner' ? 'Corner (L)' : 'Straight'}</p>
+                    {fenceLayout === 'corner' && fenceSideA > 0 && fenceSideB > 0 && (
+                      <p class="text-slate-600">Segments: A {fenceSideA.toFixed(1)} + B {fenceSideB.toFixed(1)} ft</p>
+                    )}
+                    {fenceLayout === 'u_shape' && fenceSideA > 0 && fenceSideB > 0 && fenceSideC > 0 && (
+                      <p class="text-slate-600">Segments: A {fenceSideA.toFixed(1)} + B {fenceSideB.toFixed(1)} + C {fenceSideC.toFixed(1)} ft</p>
+                    )}
+                    <p class="text-slate-600">Style: {String((normalizedInputs as any).fence_style ?? 'privacy')}</p>
+                    <p class="text-slate-600">Material: {String((normalizedInputs as any).fence_material ?? 'wood')}</p>
+                  </div>
+                  <div class="rounded-lg border border-slate-800 p-3">
+                    <p class="font-semibold">Layout + Hardware</p>
+                    <p class="mt-1 text-slate-600">Post spacing: {fmt((normalizedInputs as any).fence_post_spacing_ft, ' ft')}</p>
+                    <p class="text-slate-600">Rail count: {fmt((normalizedInputs as any).fence_rail_count)}</p>
+                    <p class="text-slate-600">Gate count: {fmt((normalizedInputs as any).fence_gate_count)}</p>
+                    <p class="text-slate-600">Gate width: {fmt((normalizedInputs as any).fence_gate_width_ft, ' ft')}</p>
+                  </div>
+                </div>
+                <div class="rounded-lg border border-slate-800 p-3">
+                  <p class="font-semibold">Fence Diagram</p>
+                  <svg viewBox="0 0 320 120" class="mt-2 w-full">
+                    {Array.from({ length: fenceRailCount }).map((_, idx) => (
+                      <polyline points={fencePolylinePoints} fill="none" stroke="#7c2d12" stroke-width={idx === 0 ? '2.5' : '1.5'} opacity={idx === 0 ? '1' : '0.7'}></polyline>
+                    ))}
+                    {fencePostMarkers.map((p) => (
+                      <line x1={p.x} y1={p.y - 10} x2={p.x} y2={p.y + 10} stroke="#1d4ed8" stroke-width="2"></line>
+                    ))}
+                    <text x="24" y="96" font-size="10" fill="currentColor">Fence run: {fenceRunTotalLf.toFixed(1)} lf</text>
+                    <text x="24" y="108" font-size="10" fill="currentColor">Posts: {fencePostCount} • Rails: {fenceRailCount} • Gates: {fenceGateCount}</text>
+                  </svg>
+                </div>
+              </>
+            ) : (
             <div class="grid gap-3 sm:grid-cols-2">
             <div class="rounded-lg border border-slate-800 p-3">
               <p class="font-semibold">Deck Geometry</p>
@@ -275,9 +408,15 @@ if (share.kind === 'estimate') {
             <div class="rounded-lg border border-slate-800 p-3">
               <p class="font-semibold">Cover</p>
               <p class="mt-1 text-slate-600">Covered: {(normalizedInputs as any).is_covered ? 'Yes' : 'No'}</p>
-              <p class="text-slate-600">Roof type: {String((normalizedInputs as any).roof_type ?? 'N/A')}</p>
+              <p class="text-slate-600">Roof style: {String((normalizedInputs as any).roof_type ?? 'shed') === 'gable' ? 'Gable' : 'Lean-to'}</p>
+              <p class="text-slate-600">Roof pitch: {String((normalizedInputs as any).roof_pitch ?? '4:12')}</p>
+              <p class="text-slate-600">Roofing material: {String((normalizedInputs as any).roofing_material ?? 'N/A')}</p>
+              <p class="text-slate-600">Roofing type: {String((normalizedInputs as any).roofing_product_type ?? 'N/A')}</p>
+              <p class="text-slate-600">Roof color: {String((normalizedInputs as any).roofing_color ?? 'N/A')}</p>
               <p class="text-slate-600">Roof length: {fmt((normalizedInputs as any).roof_length_ft, ' ft')}</p>
               <p class="text-slate-600">Roof width: {fmt((normalizedInputs as any).roof_width_ft, ' ft')}</p>
+              <p class="text-slate-600">Ceiling finish: {String((normalizedInputs as any).ceiling_finish ?? 'none')}</p>
+              <p class="text-slate-600">Fan plates: {fmt((normalizedInputs as any).ceiling_fan_plate_count ?? 0)}</p>
             </div>
             </div>
 
@@ -348,6 +487,7 @@ if (share.kind === 'estimate') {
                 Ledger location: {reviewInputs.ledger ? (isPolygon ? `Edge ${Number(ledgerLineIndex ?? 0) + 1}` : ledgerSide) : 'Freestanding / no ledger'}
               </p>
             </div>
+            )}
           </div>
         ) : (
           <p class="mt-3 text-sm text-slate-600">No design input version found.</p>

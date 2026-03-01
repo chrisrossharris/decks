@@ -10,6 +10,7 @@ interface Props {
 }
 
 const { inputs = {}, takeoff, labor, estimate } = Astro.props as Props;
+const isFence = String((inputs as any).design_mode ?? 'deck') === 'fence';
 
 const polygonPoints = Array.isArray(inputs.deck_polygon_points)
   ? inputs.deck_polygon_points
@@ -53,6 +54,103 @@ const deckSqft = Number(
 );
 const laborTotal = Number(labor?.total_labor_cost ?? 0);
 const totalPrice = Number(estimate?.grand_total ?? 0);
+const fenceLengthLf = Number((inputs as any).fence_length_ft ?? 0);
+const fenceHeightFt = Number((inputs as any).fence_height_ft ?? 0);
+const fencePosts = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Fence post')?.qty ?? 0);
+const fenceRailsLf = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Fence rail')?.qty ?? 0);
+const fenceGates = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Fence gate allowance')?.qty ?? 0);
+const fenceConcreteBags = Number(items.find((i: any) => i.category === 'Fence' && i.name === 'Concrete bag')?.qty ?? 0);
+const fenceAreaSqft = Number.isFinite(deckSqft) ? deckSqft : (fenceLengthLf * fenceHeightFt);
+const fenceLayout = String((inputs as any).fence_layout ?? 'straight');
+const fenceSideA = Math.max(0, Number((inputs as any).fence_side_a_ft ?? 0));
+const fenceSideB = Math.max(0, Number((inputs as any).fence_side_b_ft ?? 0));
+const fenceSideC = Math.max(0, Number((inputs as any).fence_side_c_ft ?? 0));
+const fenceSegments = (() => {
+  if (fenceLayout === 'corner' && fenceSideA > 0 && fenceSideB > 0) return [fenceSideA, fenceSideB];
+  if (fenceLayout === 'u_shape' && fenceSideA > 0 && fenceSideB > 0 && fenceSideC > 0) return [fenceSideA, fenceSideB, fenceSideC];
+  return [Math.max(0, fenceLengthLf)];
+})();
+const fenceTotalFromSegments = fenceSegments.reduce((sum, value) => sum + value, 0);
+const fenceTotalRunLf = fenceTotalFromSegments > 0 ? fenceTotalFromSegments : Math.max(0, fenceLengthLf);
+const isCovered = !isFence && Boolean((inputs as any).is_covered);
+const roofTypeLabel = String((inputs as any).roof_type ?? 'shed') === 'gable' ? 'Gable' : 'Lean-to';
+const roofPitch = String((inputs as any).roof_pitch ?? '4:12');
+const roofingMaterial = String((inputs as any).roofing_material ?? 'shingle');
+const roofingType = String((inputs as any).roofing_product_type ?? '').trim();
+const roofingColor = String((inputs as any).roofing_color ?? '').trim();
+const ceilingFinish = String((inputs as any).ceiling_finish ?? 'none');
+const fanPlateCount = Math.max(0, Number((inputs as any).ceiling_fan_plate_count ?? 0));
+const roofLengthFt = Math.max(0, Number((inputs as any).roof_length_ft ?? 0));
+const roofWidthFt = Math.max(0, Number((inputs as any).roof_width_ft ?? 0));
+const roofSqft = roofLengthFt > 0 && roofWidthFt > 0 ? roofLengthFt * roofWidthFt : 0;
+const fencePlot = (() => {
+  const left = 24;
+  const right = 296;
+  const bottom = 86;
+  const top = 24;
+  const width = right - left;
+  const height = bottom - top;
+
+  if (fenceSegments.length === 1) {
+    return [{ x: left, y: 55 }, { x: right, y: 55 }];
+  }
+
+  if (fenceSegments.length === 2) {
+    const scale = Math.min(width / Math.max(fenceSegments[0], 1), height / Math.max(fenceSegments[1], 1));
+    const a = fenceSegments[0] * scale;
+    const b = fenceSegments[1] * scale;
+    return [
+      { x: left, y: bottom },
+      { x: left + a, y: bottom },
+      { x: left + a, y: bottom - b }
+    ];
+  }
+
+  const horiz = fenceSegments[0] + fenceSegments[2];
+  const scale = Math.min(width / Math.max(horiz, 1), height / Math.max(fenceSegments[1], 1));
+  const a = fenceSegments[0] * scale;
+  const b = fenceSegments[1] * scale;
+  const c = fenceSegments[2] * scale;
+  return [
+    { x: left, y: bottom },
+    { x: left + a, y: bottom },
+    { x: left + a, y: bottom - b },
+    { x: left + a + c, y: bottom - b }
+  ];
+})();
+const fencePolylinePoints = fencePlot.map((p) => `${p.x},${p.y}`).join(' ');
+const fencePostMarkers = (() => {
+  const markers: Array<{ x: number; y: number }> = [];
+  const safePosts = Math.max(2, Math.min(60, fencePosts || 2));
+  let total = 0;
+  const lengths: number[] = [];
+  for (let i = 1; i < fencePlot.length; i += 1) {
+    const a = fencePlot[i - 1];
+    const b = fencePlot[i];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    lengths.push(len);
+    total += len;
+  }
+  if (total <= 0) return markers;
+  for (let i = 0; i < safePosts; i += 1) {
+    const target = (i / Math.max(safePosts - 1, 1)) * total;
+    let remain = target;
+    for (let seg = 0; seg < lengths.length; seg += 1) {
+      if (remain <= lengths[seg] || seg === lengths.length - 1) {
+        const start = fencePlot[seg];
+        const end = fencePlot[seg + 1];
+        const t = lengths[seg] > 0 ? remain / lengths[seg] : 0;
+        markers.push({
+          x: start.x + (end.x - start.x) * t,
+          y: start.y + (end.y - start.y) * t
+        });
+        break;
+      }
+      remain -= lengths[seg];
+    }
+  }
+  return markers;
+})();
 const assumptions = parseJsonObject(takeoff?.assumptions_json, {} as Record<string, unknown>);
 const constants = parseJsonObject((assumptions as any).constants, {} as Record<string, unknown>);
 const beamCountEffectiveRaw = Number((constants as any).effective_beam_count ?? 0);
@@ -189,20 +287,98 @@ const ledgerLine = (() => {
   <h2 class="font-display text-lg font-semibold">Project Summary</h2>
   <p class="mt-1 text-sm text-slate-500">Quick snapshot after takeoff, labor, and estimate.</p>
 
-  <div class="mt-3 grid gap-3 sm:grid-cols-3">
-    <div class="surface-muted rounded-md p-3">
-      <p class="label">Deck Area</p>
-      <p class="text-lg font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} sqft</p>
-    </div>
-    <div class="surface-muted rounded-md p-3">
-      <p class="label">Structural Posts / Concrete</p>
-      <p class="text-lg font-semibold">{structuralPosts} posts • {concreteBags} bags</p>
-    </div>
-    <div class="surface-muted rounded-md p-3">
-      <p class="label">Estimate Total</p>
-      <p class="text-lg font-semibold">{money(totalPrice)}</p>
-    </div>
-  </div>
+  {isFence ? (
+    <>
+      <div class="mt-3 grid gap-3 sm:grid-cols-3">
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Fence Area</p>
+          <p class="text-lg font-semibold">{Number.isFinite(fenceAreaSqft) ? fenceAreaSqft.toFixed(0) : '0'} sqft</p>
+        </div>
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Fence Posts / Concrete</p>
+          <p class="text-lg font-semibold">{fencePosts} posts • {fenceConcreteBags} bags</p>
+        </div>
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Estimate Total</p>
+          <p class="text-lg font-semibold">{money(totalPrice)}</p>
+        </div>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+        <div class="surface-muted rounded-md p-3">
+          <p class="mb-2 text-sm font-semibold">Fence Diagram</p>
+          <svg viewBox="0 0 320 120" class="w-full">
+            <polyline points={fencePolylinePoints} fill="none" stroke="#7c2d12" stroke-width="2.5"></polyline>
+            {fencePostMarkers.map((p) => (
+              <line x1={p.x} y1={p.y - 10} x2={p.x} y2={p.y + 10} stroke="#1d4ed8" stroke-width="2"></line>
+            ))}
+            <text x="24" y="95" font-size="10" fill="currentColor">Fence run: {fenceTotalRunLf.toFixed(1)} lf</text>
+            <text x="24" y="108" font-size="10" fill="currentColor">Height: {fenceHeightFt.toFixed(1)} ft</text>
+          </svg>
+          <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+            <span class="inline-flex items-center gap-1"><span class="h-0.5 w-4 bg-amber-700"></span>Fence rail line</span>
+            <span class="inline-flex items-center gap-1"><span class="h-4 w-0.5 bg-blue-700"></span>Fence post</span>
+          </div>
+        </div>
+        <div class="surface-muted rounded-md p-3 text-sm">
+          <p class="font-semibold">Key Metrics</p>
+          <p class="mt-2">Fence length: {fenceLengthLf.toFixed(1)} lf</p>
+          <p>Layout: {fenceLayout === 'u_shape' ? 'U-shape' : fenceLayout === 'corner' ? 'Corner (L)' : 'Straight'}</p>
+          {fenceLayout === 'corner' && fenceSideA > 0 && fenceSideB > 0 && (
+            <p>Segments: A {fenceSideA.toFixed(1)} ft + B {fenceSideB.toFixed(1)} ft</p>
+          )}
+          {fenceLayout === 'u_shape' && fenceSideA > 0 && fenceSideB > 0 && fenceSideC > 0 && (
+            <p>Segments: A {fenceSideA.toFixed(1)} ft + B {fenceSideB.toFixed(1)} ft + C {fenceSideC.toFixed(1)} ft</p>
+          )}
+          <p>Fence height: {fenceHeightFt.toFixed(1)} ft</p>
+          <p>Fence style: {String((inputs as any).fence_style ?? 'privacy')}</p>
+          <p>Fence material: {String((inputs as any).fence_material ?? 'wood')}</p>
+          <p>Fence rails: {fenceRailsLf.toFixed(0)} lf</p>
+          <p>Gate count: {fenceGates.toFixed(0)}</p>
+          <p>Labor total: {money(laborTotal)}</p>
+          <p class="mt-3 text-xs text-slate-500">Fence diagram is conceptual for quick review.</p>
+        </div>
+      </div>
+    </>
+  ) : (
+    <>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Deck Area</p>
+          <p class="text-lg font-semibold">{Number.isFinite(deckSqft) ? deckSqft.toFixed(0) : '0'} sqft</p>
+        </div>
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Decking / Joists</p>
+          <p class="text-lg font-semibold">{deckingMaterial === 'composite' ? 'Composite' : 'Wood'} • {joistSpacingIn}" O.C.</p>
+        </div>
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Structural Posts / Concrete</p>
+          <p class="text-lg font-semibold">{structuralPosts} posts • {concreteBags} bags</p>
+        </div>
+        <div class="surface-muted rounded-md p-3">
+          <p class="label">Estimate Total</p>
+          <p class="text-lg font-semibold">{money(totalPrice)}</p>
+        </div>
+      </div>
+      {isCovered && (
+        <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div class="surface-muted rounded-md p-3">
+            <p class="label">Roof Package</p>
+            <p class="text-lg font-semibold">{roofTypeLabel} • {roofPitch}</p>
+          </div>
+          <div class="surface-muted rounded-md p-3">
+            <p class="label">Roofing</p>
+            <p class="text-lg font-semibold">{roofingMaterial}{roofingType ? ` • ${roofingType}` : ''}</p>
+          </div>
+          <div class="surface-muted rounded-md p-3">
+            <p class="label">Ceiling</p>
+            <p class="text-lg font-semibold">{ceilingFinish === 'none' ? 'None' : ceilingFinish}{fanPlateCount > 0 ? ` • fan plates ${fanPlateCount}` : ''}</p>
+          </div>
+          <div class="surface-muted rounded-md p-3">
+            <p class="label">Roof Area</p>
+            <p class="text-lg font-semibold">{roofSqft.toFixed(0)} sqft{roofingColor ? ` • ${roofingColor}` : ''}</p>
+          </div>
+        </div>
+      )}
 
   <div class="mt-4 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
     <div class="surface-muted rounded-md p-3">
@@ -274,6 +450,16 @@ const ledgerLine = (() => {
         Decking: {deckingMaterial === 'composite' ? 'Composite' : 'Wood'}
         {deckingMaterial === 'composite' ? ' (forced max 12" O.C.)' : ''}
       </p>
+      {isCovered && (
+        <p>
+          Covered package: {roofTypeLabel} {roofPitch} • {roofingMaterial}{roofingType ? ` ${roofingType}` : ''}{roofingColor ? ` (${roofingColor})` : ''}
+        </p>
+      )}
+      {isCovered && (
+        <p>
+          Ceiling: {ceilingFinish === 'none' ? 'none' : ceilingFinish}{fanPlateCount > 0 ? ` • fan plates ${fanPlateCount}` : ''}
+        </p>
+      )}
       <p>Joists: {joistCount}</p>
       <p>Beam lines: {beamCount}{beamCount !== beamCountInput ? ` (auto from ${beamCountInput})` : ''}</p>
       <p>
@@ -286,4 +472,6 @@ const ledgerLine = (() => {
       <p class="mt-3 text-xs text-slate-500">Diagram is conceptual for quick review, not structural engineering.</p>
     </div>
   </div>
+    </>
+  )}
 </section>

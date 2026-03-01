@@ -1,12 +1,14 @@
 import type { APIRoute } from 'astro';
-import { createDocument, getProject, latestDesignInputs, latestTakeoff } from '@/lib/db/repo';
+import { createDocument, createProjectActivity, getProject, latestDesignInputs, latestTakeoff } from '@/lib/db/repo';
 import { buildPdf, storePdf } from '@/lib/pdf/exporter';
-import { requireUserId } from '@/lib/utils/auth';
+import { requireProjectEditAccess, requireUserId } from '@/lib/utils/auth';
 import { parseJsonObject } from '@/lib/utils/json';
 
 export const POST: APIRoute = async (context) => {
   const userId = requireUserId(context);
   const projectId = context.params.projectId as string;
+  const editGuard = await requireProjectEditAccess(context, userId, projectId);
+  if (editGuard) return editGuard;
 
   try {
     const project = await getProject(userId, projectId);
@@ -25,7 +27,14 @@ export const POST: APIRoute = async (context) => {
     });
     const storagePath = `projects/${projectId}/materials-${Date.now()}.pdf`;
     await storePdf(storagePath, pdf);
-    await createDocument(projectId, 'materials_pdf', storagePath);
+    const doc = await createDocument(projectId, 'materials_pdf', storagePath);
+    await createProjectActivity({
+      projectId,
+      actor: project.user_id === userId ? 'owner' : 'collaborator',
+      actorRef: userId,
+      eventKey: 'materials_pdf_generated',
+      eventJson: { document_id: doc.id }
+    });
 
     return context.redirect(`/projects/${projectId}/export?ok=materials`);
   } catch {

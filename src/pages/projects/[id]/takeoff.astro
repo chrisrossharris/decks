@@ -2,8 +2,9 @@
 import AppLayout from '@/layouts/AppLayout.astro';
 import TakeoffTable from '@/components/TakeoffTable';
 import ProjectSubnav from '@/components/ProjectSubnav.astro';
-import { getProject, getProjectAssumptions, latestTakeoff, takeoffHistory, takeoffWithItems } from '@/lib/db/repo';
+import { getProject, getProjectAssumptions, latestDesignInputs, latestTakeoff, takeoffHistory, takeoffWithItems } from '@/lib/db/repo';
 import { computeTakeoffDiff } from '@/lib/engines/takeoff';
+import { parseJsonObject } from '@/lib/utils/json';
 
 const userId = Astro.locals.auth().userId;
 if (!userId) return Astro.redirect('/login');
@@ -14,6 +15,9 @@ const project = await getProject(userId, projectId);
 if (!project) throw new Error('Project not found');
 
 const takeoff = await latestTakeoff(projectId);
+const inputRow = await latestDesignInputs(projectId);
+const inputs = parseJsonObject(inputRow?.inputs_json, {});
+const isFence = (inputs as any).design_mode === 'fence' || project.type === 'fence';
 const history = await takeoffHistory(projectId);
 const rawAssumptions = (await getProjectAssumptions(projectId)) ?? {};
 const assumptions = {
@@ -21,7 +25,11 @@ const assumptions = {
   composite_joist_spacing_in: Number(rawAssumptions.composite_joist_spacing_in ?? 12),
   railing_post_spacing_ft: Number(rawAssumptions.railing_post_spacing_ft ?? 6),
   beam_double_ply_length_ft: Number(rawAssumptions.beam_double_ply_length_ft ?? 14),
-  beam_triple_ply_length_ft: Number(rawAssumptions.beam_triple_ply_length_ft ?? 24)
+  beam_triple_ply_length_ft: Number(rawAssumptions.beam_triple_ply_length_ft ?? 24),
+  fence_post_spacing_ft: Number(rawAssumptions.fence_post_spacing_ft ?? 8),
+  fence_rail_count: Number(rawAssumptions.fence_rail_count ?? 2),
+  fence_bags_per_post: Number(rawAssumptions.fence_bags_per_post ?? 2),
+  fence_hardware_kit_lf: Number(rawAssumptions.fence_hardware_kit_lf ?? 50)
 };
 
 let diff = { added: [], removed: [], changed: [] };
@@ -39,35 +47,63 @@ if (takeoff && history.length > 1) {
 
 <AppLayout title={`Takeoff - ${project.name}`}>
   <ProjectSubnav projectId={projectId} />
-  <section class="mb-4 card p-4">
-    <h2 class="font-display text-lg font-semibold">Assumption Controls</h2>
-    <p class="mt-1 text-xs text-slate-500">Adjust field assumptions used by the takeoff rules engine for this project.</p>
-    <form class="mt-3 grid gap-3 sm:grid-cols-3" method="post" action={`/api/projects/${projectId}/assumptions`}>
-      <label>
-        <p class="label">Max Joist Span (ft)</p>
-        <input class="input" name="max_joist_span_ft" type="number" step="0.1" value={assumptions.max_joist_span_ft} />
-      </label>
-      <label>
-        <p class="label">Composite Joist Spacing (in)</p>
-        <input class="input" name="composite_joist_spacing_in" type="number" step="1" value={assumptions.composite_joist_spacing_in} />
-      </label>
-      <label>
-        <p class="label">Railing Post Spacing (ft)</p>
-        <input class="input" name="railing_post_spacing_ft" type="number" step="0.1" value={assumptions.railing_post_spacing_ft} />
-      </label>
-      <label>
-        <p class="label">Double-Ply Threshold (ft)</p>
-        <input class="input" name="beam_double_ply_length_ft" type="number" step="0.1" value={assumptions.beam_double_ply_length_ft} />
-      </label>
-      <label>
-        <p class="label">Triple-Ply Threshold (ft)</p>
-        <input class="input" name="beam_triple_ply_length_ft" type="number" step="0.1" value={assumptions.beam_triple_ply_length_ft} />
-      </label>
-      <div class="flex items-end">
-        <button class="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white">Save Assumptions</button>
-      </div>
-    </form>
-  </section>
+  {!isFence ? (
+    <section class="mb-4 card p-4">
+      <h2 class="font-display text-lg font-semibold">Assumption Controls</h2>
+      <p class="mt-1 text-xs text-slate-500">Adjust field assumptions used by the takeoff rules engine for this project.</p>
+      <form class="mt-3 grid gap-3 sm:grid-cols-3" method="post" action={`/api/projects/${projectId}/assumptions`}>
+        <label>
+          <p class="label">Max Joist Span (ft)</p>
+          <input class="input" name="max_joist_span_ft" type="number" step="0.1" value={assumptions.max_joist_span_ft} />
+        </label>
+        <label>
+          <p class="label">Composite Joist Spacing (in)</p>
+          <input class="input" name="composite_joist_spacing_in" type="number" step="1" value={assumptions.composite_joist_spacing_in} />
+        </label>
+        <label>
+          <p class="label">Railing Post Spacing (ft)</p>
+          <input class="input" name="railing_post_spacing_ft" type="number" step="0.1" value={assumptions.railing_post_spacing_ft} />
+        </label>
+        <label>
+          <p class="label">Double-Ply Threshold (ft)</p>
+          <input class="input" name="beam_double_ply_length_ft" type="number" step="0.1" value={assumptions.beam_double_ply_length_ft} />
+        </label>
+        <label>
+          <p class="label">Triple-Ply Threshold (ft)</p>
+          <input class="input" name="beam_triple_ply_length_ft" type="number" step="0.1" value={assumptions.beam_triple_ply_length_ft} />
+        </label>
+        <div class="flex items-end">
+          <button class="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white">Save Assumptions</button>
+        </div>
+      </form>
+    </section>
+  ) : (
+    <section class="mb-4 card p-4">
+      <h2 class="font-display text-lg font-semibold">Fence Assumption Controls</h2>
+      <p class="mt-1 text-xs text-slate-500">Tune fence defaults used by the takeoff rules engine when generating fence quantities.</p>
+      <form class="mt-3 grid gap-3 sm:grid-cols-3" method="post" action={`/api/projects/${projectId}/assumptions`}>
+        <label>
+          <p class="label">Default Fence Post Spacing (ft)</p>
+          <input class="input" name="fence_post_spacing_ft" type="number" step="0.1" value={assumptions.fence_post_spacing_ft} />
+        </label>
+        <label>
+          <p class="label">Default Fence Rail Count</p>
+          <input class="input" name="fence_rail_count" type="number" step="1" value={assumptions.fence_rail_count} />
+        </label>
+        <label>
+          <p class="label">Concrete Bags Per Post</p>
+          <input class="input" name="fence_bags_per_post" type="number" step="1" value={assumptions.fence_bags_per_post} />
+        </label>
+        <label>
+          <p class="label">Hardware Kit Interval (lf)</p>
+          <input class="input" name="fence_hardware_kit_lf" type="number" step="1" value={assumptions.fence_hardware_kit_lf} />
+        </label>
+        <div class="flex items-end">
+          <button class="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white">Save Assumptions</button>
+        </div>
+      </form>
+    </section>
+  )}
   <div class="mb-4 flex items-center gap-3">
     <form method="post" action={`/api/takeoffs/${projectId}/generate`}>
       <button class="rounded-md bg-pine px-4 py-2 text-sm font-semibold text-white">Generate Takeoff (new version)</button>

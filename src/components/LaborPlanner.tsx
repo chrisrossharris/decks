@@ -15,13 +15,19 @@ const DRIVER_LABELS: Record<string, string> = {
 export default function LaborPlanner({
   projectId,
   templates,
-  defaultPlan
+  defaultPlan,
+  projectType
 }: {
   projectId: string;
   templates: any[];
   defaultPlan: any | null;
+  projectType?: 'deck' | 'covered_deck' | 'fence';
 }) {
-  const [selected, setSelected] = useState<string>(templates[0]?.id ?? 'default');
+  const defaultTemplateId =
+    projectType === 'fence'
+      ? (templates.find((t) => String(t?.name ?? '').toLowerCase().includes('fence'))?.id ?? templates[0]?.id ?? 'default')
+      : (templates[0]?.id ?? 'default');
+  const [selected, setSelected] = useState<string>(defaultTemplateId);
   const [includeDemo, setIncludeDemo] = useState(false);
   const [plan, setPlan] = useState(defaultPlan);
 

@@ -44,11 +44,11 @@ PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 CLERK_SECRET_KEY=sk_...
 NETLIFY_BLOBS_SITE_ID=...
 NETLIFY_BLOBS_TOKEN=...
-SEED_USER_ID=user_seed_demo
+SEED_USER_ID=REPLACE_WITH_YOUR_CLERK_USER_ID
 RESEND_API_KEY=re_...              # optional for outbound email
 RESEND_FROM_EMAIL=ops@example.com  # optional for outbound email
 INTERNAL_ALERT_EMAIL=owner@example.com # optional approval alert recipient
-NOTIFICATION_CRON_SECRET=set_a_unique_random_value_in_netlify # required for queue processor endpoint auth
+NOTIFICATION_CRON_SECRET=REPLACE_WITH_LONG_RANDOM_SECRET # required for queue processor endpoint auth
 ```
 
 For Neon, use the full connection string with SSL, e.g. `?sslmode=require`.
@@ -99,7 +99,23 @@ Covers:
 - Joist + hanger calculation
 - Railing LF logic
 - Roof area derived quantities
+- Covered roof metadata + fan plate allowance
 - Fastener box rounding
+
+Smoke checks (running app):
+```bash
+SMOKE_BASE_URL=http://localhost:4321 npm run smoke
+```
+
+Playwright public smoke e2e:
+```bash
+npm run e2e
+```
+
+Migration replay/idempotency check:
+```bash
+npm run db:migrate:replay
+```
 
 ## Notes
 - Takeoff formulas are assumptions and explicitly non-structural.
@@ -120,6 +136,11 @@ Covers:
 - Takeoff page includes project-level assumption controls (span/spacing/beam thresholds) used for new generated versions.
 - Design Inputs includes a polygon shape drawer for custom footprints (including L-shapes), with sqft/perimeter overrides used in takeoff math.
 - Project type `fence` is supported with fence-specific inputs, takeoff formulas, and labor template.
+- Covered deck inputs now include roof style (lean-to/gable), roof pitch, roofing product type/color, ceiling finish (including beadboard), and ceiling fan plate count.
+- Inputs page supports a project-level toggle: `Require complete covered package before continue` (enforced in UI and API).
+- API responses include `x-request-id` for tracing, and key API actions emit structured JSON logs + project activity events.
+- Public review endpoints include basic rate limiting to reduce abuse.
+- CI workflow is included at `.github/workflows/ci.yml` (unit/build, playwright smoke, optional migration replay).
 
 ## Estimator Logic (Carpenter Review)
 This section documents the current rules engine behavior so field leadership can verify assumptions.
@@ -203,6 +224,23 @@ This section documents the current rules engine behavior so field leadership can
   - Mini diagram, client review diagram, and PDF framing diagram all share the same beam/joist/post assumptions.
   - Diagram is scaled proportionally to length:depth ratio for visual continuity (conceptual only).
 
+### 9) Covered Deck Package (If Enabled)
+- Roof style:
+  - `shed` is treated as lean-to
+  - `gable` is treated as gable
+- Roof calculations:
+  - `roof_sqft = roof_length_ft * roof_width_ft`
+  - sheathing uses `roof_sqft * 1.05`
+  - roofing uses `roof_sqft * 1.10`
+- Roofing output includes selected:
+  - material (shingle/metal)
+  - product type (e.g. architectural, standing seam)
+  - color
+  - pitch (e.g. 4:12, 6:12)
+- Ceiling package:
+  - optional finish (`none`, `drywall`, `tongue_groove`, `beadboard`)
+  - optional `ceiling_fan_plate_count` adds fan-rated ceiling plate allowances
+
 ## Netlify Deployment Checklist
 1. Create a Netlify site from this repo.
 2. Build command: `npm run build`
@@ -219,4 +257,7 @@ This section documents the current rules engine behavior so field leadership can
 8. Optional queue processing:
    - call `POST /api/system/notifications/process` with header `x-cron-secret`
    - wire this to Netlify Scheduled Functions or an external cron.
+
+## Netlify Secret-Scan Tip
+- Keep placeholders in docs/example files generic (`REPLACE_WITH_...`) and avoid copying real secret values into `.env.example` or `README.md`, otherwise Netlify secret scanning can fail deploys.
 # decks

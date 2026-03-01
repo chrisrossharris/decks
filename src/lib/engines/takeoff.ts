@@ -154,11 +154,15 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
   const railingPostSpacingFt = overrides?.railing_post_spacing_ft ?? DEFAULT_RAILING_POST_SPACING_FT;
   const beamDoublePlyLengthFt = overrides?.beam_double_ply_length_ft ?? 14;
   const beamTriplePlyLengthFt = overrides?.beam_triple_ply_length_ft ?? 24;
+  const fencePostSpacingDefaultFt = overrides?.fence_post_spacing_ft ?? 8;
+  const fenceRailCountDefault = overrides?.fence_rail_count ?? 2;
+  const fenceBagsPerPostDefault = overrides?.fence_bags_per_post ?? 2;
+  const fenceHardwareKitLfDefault = overrides?.fence_hardware_kit_lf ?? 50;
 
   if (inputs.design_mode === 'fence') {
     const fenceLengthFt = inputs.fence_length_ft ?? 0;
-    const fenceSpacingFt = inputs.fence_post_spacing_ft ?? 8;
-    const fenceRailCount = inputs.fence_rail_count ?? 2;
+    const fenceSpacingFt = inputs.fence_post_spacing_ft ?? fencePostSpacingDefaultFt;
+    const fenceRailCount = inputs.fence_rail_count ?? fenceRailCountDefault;
     const gateCount = inputs.fence_gate_count ?? 0;
     const gateWidthFt = inputs.fence_gate_width_ft ?? 4;
     const style = inputs.fence_style ?? 'privacy';
@@ -168,13 +172,13 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
     const linePosts = ceil(fenceLengthFt / fenceSpacingFt) + 1;
     const gatePosts = gateCount * 2;
     const postCount = linePosts + gatePosts;
-    const concreteBags = postCount * 2;
+    const concreteBags = postCount * fenceBagsPerPostDefault;
     const railLf = fenceLengthFt * fenceRailCount;
     const picketCount = style === 'panel'
       ? 0
       : ceil((fenceLengthFt * 12) / Math.max(picketWidthIn + picketGapIn, 0.25));
     const panelCount = style === 'panel' ? ceil(fenceLengthFt / 8) : 0;
-    const hardwareKits = ceil(fenceLengthFt / 50);
+    const hardwareKits = ceil(fenceLengthFt / fenceHardwareKitLfDefault);
 
     const items: TakeoffItem[] = [
       withPrice({
@@ -193,7 +197,7 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         qty: concreteBags,
         waste_factor: 0.05,
         lead_time_days: 2,
-        notes: '2 bags per post footing allowance'
+        notes: `${fenceBagsPerPostDefault} bags per post footing allowance`
       }),
       withPrice({
         category: 'Fence',
@@ -211,7 +215,7 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         qty: hardwareKits,
         waste_factor: 0,
         lead_time_days: 2,
-        notes: 'Hardware allowance kits per 50 lf'
+        notes: `Hardware allowance kits per ${fenceHardwareKitLfDefault} lf`
       })
     ];
 
@@ -261,11 +265,11 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
     return {
       assumptions: {
         joist_material: 'N/A (fence mode)',
-        bags_per_footing: 2,
+        bags_per_footing: fenceBagsPerPostDefault,
         screws_per_100_sqft: 0,
         formulas: {
           fence_posts: 'ceil(fence_length_ft/fence_post_spacing_ft)+1 + (gate_count*2)',
-          fence_concrete_bags: 'fence_posts * 2',
+          fence_concrete_bags: 'fence_posts * fence_bags_per_post',
           fence_rail_lf: 'fence_length_ft * fence_rail_count',
           fence_pickets: style === 'panel' ? '0' : 'ceil((fence_length_ft*12)/(picket_width_in+picket_gap_in))',
           fence_panels: style === 'panel' ? 'ceil(fence_length_ft/8)' : '0'
@@ -273,6 +277,8 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         constants: {
           default_fence_post_spacing_ft: fenceSpacingFt,
           default_fence_rail_count: fenceRailCount,
+          default_fence_bags_per_post: fenceBagsPerPostDefault,
+          default_fence_hardware_kit_lf: fenceHardwareKitLfDefault,
           cost_formula: 'line_total = qty*(1+waste_factor)*unit_cost; materials_subtotal = sum(line_total)',
           non_structural_disclaimer: true
         }
@@ -604,6 +610,10 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
   if (inputs.is_covered && inputs.roof_length_ft && inputs.roof_width_ft) {
     const roofArea = inputs.roof_length_ft * inputs.roof_width_ft;
     const rafters = Math.floor((inputs.roof_width_ft * 12) / (inputs.rafter_spacing_in ?? 16)) + 1;
+    const roofStyleLabel = inputs.roof_type === 'gable' ? 'gable' : 'lean-to';
+    const roofPitch = inputs.roof_pitch ?? '4:12';
+    const roofProductType = (inputs.roofing_product_type ?? '').trim();
+    const roofColor = (inputs.roofing_color ?? '').trim();
 
     items.push(
       withPrice({
@@ -631,7 +641,7 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
         qty: round2(roofArea * 1.1),
         waste_factor: 0.03,
         lead_time_days: 7,
-        notes: 'Roof area x 1.10'
+        notes: `Roof area x 1.10 | ${roofStyleLabel} | pitch ${roofPitch}${roofProductType ? ` | type ${roofProductType}` : ''}${roofColor ? ` | color ${roofColor}` : ''}`
       })
     );
 
@@ -639,7 +649,12 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
       items.push(
         withPrice({
           category: 'Ceiling',
-          name: inputs.ceiling_finish === 'drywall' ? 'Ceiling drywall' : 'Ceiling tongue & groove',
+          name:
+            inputs.ceiling_finish === 'drywall'
+              ? 'Ceiling drywall'
+              : inputs.ceiling_finish === 'beadboard'
+                ? 'Ceiling beadboard'
+                : 'Ceiling tongue & groove',
           unit: 'sqft',
           qty: round2(roofArea),
           waste_factor: 0.1,
@@ -654,6 +669,20 @@ export function generateTakeoff(inputs: DesignInputs, overrides?: TakeoffAssumpt
           waste_factor: 0,
           lead_time_days: 2,
           notes: '1 fastener unit per 20 sqft'
+        })
+      );
+    }
+
+    if ((inputs.ceiling_fan_plate_count ?? 0) > 0) {
+      items.push(
+        withPrice({
+          category: 'Ceiling',
+          name: 'Fan-rated ceiling plate',
+          unit: 'ea',
+          qty: Number(inputs.ceiling_fan_plate_count ?? 0),
+          waste_factor: 0.05,
+          lead_time_days: 3,
+          notes: 'Allowance for fan support plate/box locations'
         })
       );
     }
